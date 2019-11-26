@@ -1,0 +1,8 @@
+OpenJDK hprof dump parsing library.
+
+Based on https://hg.openjdk.java.net/jdk/jdk/file/9a73a4e4011f/src/hotspot/share/services/heapDumper.cpp
+and http://hg.openjdk.java.net/jdk6/jdk6/jdk/raw-file/tip/src/share/demo/jvmti/hprof/manual.html
+Currently, the supported ID sizes (actually, pointer size) are 4 and 8.
+
+Author: Ivan Boldyrev <lispnik@gmail.com>
+

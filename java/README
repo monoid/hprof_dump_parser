@@ -1,0 +1,5 @@
+A tool to create sample heap dump.
+
+Run to get 4GB dump.hprof:
+
+javac dumper/Dumper.java && java -Xmx4096m dumper.Dumper
