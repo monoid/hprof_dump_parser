@@ -1,4 +1,5 @@
 pub mod decl;
+pub mod records;
 pub mod stream;
 pub mod try_byteorder;
 

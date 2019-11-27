@@ -30,6 +30,24 @@ impl From<usize> for Id {
     }
 }
 
+impl Into<u64> for Id {
+    fn into(self: Id) -> u64 {
+        self.0 as u64
+    }
+}
+
+impl From<u64> for Id {
+    fn from(id: u64) -> Id {
+        Id(id as usize)
+    }
+}
+
+impl From<u32> for Id {
+    fn from(id: u32) -> Id {
+        Id(id as usize)
+    }
+}
+
 /// Timestamp
 pub type Ts = u64;
 
@@ -89,11 +107,13 @@ pub enum FieldValue {
 pub enum LifeTime {
     Static,
     Object,
+    Const,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Access {
     Private,
+    Protected,
     Default,
     Public,
 }
@@ -135,7 +155,7 @@ pub enum DumpRecord {
 #[derive(Debug)]
 pub enum Error {
     InvalidHeader,
-    InvalidPacket(u8, usize),
+    InvalidPacket(u8, u32),
     InvalidSubpacket,
     PrematureEOF,
     UnderlyingIOError(io::Error),

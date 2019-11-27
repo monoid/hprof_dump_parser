@@ -39,14 +39,14 @@ pub trait ReadBytesTryExt: io::Read {
                 Err(e) => return Some(Err(e)),
             }
         }
-        return Some(if !buf.is_empty() {
+        Some(if !buf.is_empty() {
             Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "failed to fill whole buffer",
             ))
         } else {
             Ok(())
-        });
+        })
     }
 
     fn try_read_u8(&mut self) -> Option<io::Result<u8>> {
