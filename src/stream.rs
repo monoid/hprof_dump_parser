@@ -77,7 +77,7 @@ impl StreamHprofReader {
         // Using split looks unreliable.  Reading byte-by-byte looks more reliable and doesn't require
         // a BufRead (though why not?).
         self.banner = from_utf8(&stream.split(0x00).next().unwrap()?[..])
-	    .or(Err(Error::InvalidHeader))?
+            .or(Err(Error::InvalidHeader))?
             .to_string(); // TODO unwrap
         self.id_size = stream.read_u32::<NetworkEndian>()? as usize;
         // It can be read as u64 as well
@@ -105,10 +105,9 @@ impl<'a, R: Read> StreamHprofIterator<'a, R> {
             payload_size -= self.hprof.id_size;
             // Read string as byte vec.  Contrary to documentation, it
             // is not always a valid utf-8 string.
-            let mut data = Vec::<u8>::with_capacity(payload_size);
-            data.resize(payload_size, 0);
+            let mut data = vec![0; payload_size];
             self.stream.read_exact(&mut data[..])?;
-	    self.hprof.strings.insert(id, data.clone());
+            self.hprof.strings.insert(id, data.clone());
             Ok(Record::String(timestamp, id, data))
         } else if tag == TAG_LOAD_CLASS {
             assert!(self.hprof.id_size == 8);
@@ -212,10 +211,10 @@ mod tests {
         assert!(hprof.id_size == 8 || hprof.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
         assert_eq!(hprof.banner, "JAVA PROFILE 1.0.2"); // May suddenly fail if your version will change.
 
-	let mut total_size: usize = 0;
-	for (_, v) in hprof.strings {
-	    total_size += v.len();
-	}
-	eprintln!("Data size: {}", total_size);
+        let mut total_size: usize = 0;
+        for (_, v) in hprof.strings {
+            total_size += v.len();
+        }
+        eprintln!("Data size: {}", total_size);
     }
 }
