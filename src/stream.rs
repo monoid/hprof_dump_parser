@@ -69,10 +69,13 @@ impl StreamHprofReader {
         // Using split looks unreliable.  Reading byte-by-byte looks more reliable and doesn't require
         // a BufRead (though why not?).
         self.banner = from_utf8(&stream.split(0x00).next().unwrap()?[..])
-            .or(Err(Error::InvalidHeader))?
-            .to_string(); // TODO unwrap
+            .or(Err(Error::InvalidHeader(
+                "Failed to parse file banner in header",
+            )))?
+            .to_string(); // TODO get rid of unwrap
         self.id_reader.id_size = stream.read_u32::<NetworkEndian>()?;
-        // It can be read as u64 as well
+
+        // It can be read as u64 as well, but we follow the spec.
         let hi = stream.read_u32::<NetworkEndian>()? as u64;
         let lo = stream.read_u32::<NetworkEndian>()? as u64;
         self.timestamp = (hi << 32) | lo;
@@ -87,26 +90,67 @@ impl StreamHprofReader {
 
 impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
     fn read_record(&mut self, tag: u8) -> Result<Record, Error> {
-        let id_reader = self.hprof.id_reader;
         let timestamp_delta: u64 = self.stream.read_u32::<NetworkEndian>()?.into();
-        let timestamp = self.hprof.timestamp + timestamp_delta;
         let payload_size: u32 = self.stream.read_u32::<NetworkEndian>()?;
-        if tag == TAG_STRING {
-            let (id, data) = read_01_string(self.stream, id_reader, payload_size)?;
-            self.hprof.strings.insert(id, data.clone());
-            Ok(Record::String(timestamp, id, data))
-        } else if tag == TAG_LOAD_CLASS {
-            let class_record = read_02_load_class(self.stream, id_reader)?;
-            Ok(Record::LoadClass(timestamp, class_record))
-        } else {
-            Err(Error::InvalidPacket(tag, payload_size))
+
+        let id_reader = self.hprof.id_reader;
+        let timestamp = self.hprof.timestamp + timestamp_delta;
+
+        match tag {
+            TAG_STRING => {
+                let (id, data) = read_01_string(self.stream, id_reader, payload_size)?;
+                self.hprof.strings.insert(id, data.clone());
+                Ok(Record::String(timestamp, id, data))
+            }
+            TAG_LOAD_CLASS => {
+                let class_record = read_02_load_class(self.stream, id_reader)?;
+
+                Ok(Record::LoadClass(timestamp, class_record))
+            }
+            TAG_UNLOAD_CLASS => {
+                let serial = read_03_unload_class(self.stream)?;
+
+                Ok(Record::UnloadClass(timestamp, serial))
+            }
+            TAG_STACK_FRAME => {
+                let frame = read_04_frame(self.stream, id_reader)?;
+
+                Ok(Record::StackFrame(timestamp, frame))
+            }
+            TAG_STACK_TRACE => {
+                let trace = read_05_trace(self.stream, id_reader)?;
+
+                Ok(Record::StackTrace(timestamp, trace))
+            }
+            TAG_ALLOC_SITES => {
+                let alloc = read_06_alloc_sites(self.stream)?;
+
+                Ok(Record::AllocSites(timestamp, alloc))
+            }
+            TAG_HEAP_SUMMARY => {
+                let heap_summary = read_07_heap_summary(self.stream)?;
+
+                Ok(Record::HeapSummary(timestamp, heap_summary))
+            }
+            TAG_START_THREAD => {
+                let start_thread = read_0a_start_thread(self.stream, id_reader)?;
+
+                Ok(Record::StartThread(timestamp, start_thread))
+            }
+            TAG_END_THREAD => {
+                let end_thread = read_0b_end_thread(self.stream)?;
+
+                Ok(Record::EndThread(timestamp, end_thread))
+            }
+            _ => Err(Error::UnknownPacket(tag, payload_size)),
         }
     }
 
     fn read_data_record(tag: u8, timestamp: Ts, stream: &mut Take<R>) -> Result<Record, Error> {
         let timestamp_delta: u64 = stream.read_u32::<NetworkEndian>()?.into();
         let payload_size = stream.read_u32::<NetworkEndian>()?;
-        Err(Error::InvalidPacket(tag, payload_size))
+
+        Err(Error::UnknownPacket(tag, payload_size))
     }
 }
 
