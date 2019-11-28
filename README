@@ -1,8 +1,12 @@
-OpenJDK hprof dump parsing library.
+OpenJDK HPROF dump parsing library.
 
 Based on https://hg.openjdk.java.net/jdk/jdk/file/9a73a4e4011f/src/hotspot/share/services/heapDumper.cpp
 and http://hg.openjdk.java.net/jdk6/jdk6/jdk/raw-file/tip/src/share/demo/jvmti/hprof/manual.html
-Currently, the supported ID sizes (actually, pointer size) are 4 and 8.
+
+Currently, the supported ID sizes (actually, pointer sizes) are 4 and 8.
+
+The library provides a streaming interface (iterator over dump
+records).  Class structure information is kept in memory as it is
+required for unpacking object data.
 
 Author: Ivan Boldyrev <lispnik@gmail.com>
-
