@@ -14,9 +14,23 @@ pub(crate) const TAG_HEAP_DUMP: u8 = 0x0C;
 pub(crate) const TAG_HEAP_DUMP_SEGMENT: u8 = 0x1C;
 pub(crate) const TAG_HEAP_DUMP_END: u8 = 0x2C;
 
+pub(crate) const TAG_GC_ROOT_UNKNOWN: u8 = 0xFF;
+pub(crate) const TAG_GC_ROOT_JNI_GLOBAL: u8 = 0x01;
+pub(crate) const TAG_GC_ROOT_JNI_LOCAL: u8 = 0x02;
+pub(crate) const TAG_GC_ROOT_JAVA_FRAME: u8 = 0x03;
+pub(crate) const TAG_GC_ROOT_NATIVE_STACK: u8 = 0x04;
+pub(crate) const TAG_GC_ROOT_STICKY_CLASS: u8 = 0x05;
+pub(crate) const TAG_GC_ROOT_THREAD_BLOCK: u8 = 0x06;
+pub(crate) const TAG_GC_ROOT_MONITOR_USED: u8 = 0x07;
+pub(crate) const TAG_GC_ROOT_THREAD_OBJ: u8 = 0x08;
+pub(crate) const TAG_GC_CLASS_DUMP: u8 = 0x20;
+pub(crate) const TAG_GC_INSTANCE_DUMP: u8 = 0x21;
+pub(crate) const TAG_GC_OBJ_ARRAY_DUMP: u8 = 0x22;
+pub(crate) const TAG_GC_PRIM_ARRAY_DUMP: u8 = 0x23;
+
 // TODO: u64 or template parameter.  One might use Vec<u8> or some
 // more lightweight container (Id size never change after creation) to
-// be fully bullet-proof.
+// be future-proof.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
 pub struct Id(usize);
@@ -189,25 +203,15 @@ pub enum ArrayValue {
 
 #[derive(Clone, Copy, Debug)]
 pub enum FieldLifeTime {
-    Static,
-    Object,
     Const,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum FieldAccess {
-    Private,
-    Protected,
-    Default,
-    Public,
+    Object,
+    Static,
 }
 
 #[derive(Clone, Debug)]
 pub struct FieldInfo {
     name: String,
     type_: FieldType,
-    lifetime: FieldLifeTime,
-    access: FieldAccess,
 }
 
 /**
@@ -215,22 +219,22 @@ Class information: fields, etc.
 */
 #[derive(Clone, Debug)]
 pub struct ClassDescription {
+    const_fields: Vec<(FieldInfo, FieldValue)>,
     object_fields: Vec<FieldInfo>,
-    class_fields: Vec<FieldInfo>,
-    static_fields: Vec<FieldInfo>,
+    static_fields: Vec<(FieldInfo, FieldValue)>,
 }
 
 #[derive(Debug)]
 pub enum DumpRecord {
     RootUnknown(Id),
-    RootJniGlobal,
-    RootJniLocal,
-    RootJavaFrame,
-    RootNativeStack,
-    RootStickyClass,
-    RootThreadBlock,
-    RootMonitorUsed,
-    RootThreadObject,
+    RootJniGlobal(Id, Id),
+    RootJniLocal(Id, SerialNumber, u32),
+    RootJavaFrame(Id, SerialNumber, u32),
+    RootNativeStack(Id, SerialNumber),
+    RootStickyClass(Id),
+    RootThreadBlock(Id, SerialNumber),
+    RootMonitorUsed(Id),
+    RootThreadObject(Id, u32, u32),
     ClassDump,
     InstanceDump,
     ObjectArrayDump,
@@ -253,7 +257,10 @@ pub enum Error {
     /// Invalid HPROF_DATA subpacket
     InvalidSubpacket(u8, u32),
     /// Completely unknown HPROF_DATA subpacket type.
-    UnknownSubpacket(u8, u32),
+    UnknownSubpacket(u8),
+    /// Unknown class (found an object of unknown class, thus unknown
+    /// structure).  First element is a Class Id, second is an Object Id.
+    UnknownClass(Id, Id),
     /// Incomplete packet/subpacket
     PrematureEOF,
     /// Generic IO error
