@@ -21,15 +21,14 @@ pub struct StreamHprofReader {
 
 enum IteratorState<'stream, R: Read> {
     Eof,
-    InData(Ts, &'stream mut Take<R>),
-    InNormal,
+    InData(Ts, Take<&'stream mut R>),
+    InNormal(&'stream mut R),
 }
 
 pub struct StreamHprofIterator<'stream, 'hprof, R: Read> {
     state: IteratorState<'stream, R>,
     // TODO: just copy params from StreamHprofReader
     hprof: &'hprof mut StreamHprofReader,
-    stream: &'stream mut R,
 }
 
 impl StreamHprofReader {
@@ -81,76 +80,157 @@ impl StreamHprofReader {
         self.timestamp = (hi << 32) | lo;
 
         Ok(StreamHprofIterator {
-            state: IteratorState::InNormal,
+            state: IteratorState::InNormal(stream),
             hprof: self,
-            stream,
         })
     }
 }
 
 impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
-    fn read_record(&mut self, tag: u8) -> Result<Record, Error> {
-        let timestamp_delta: u64 = self.stream.read_u32::<NetworkEndian>()?.into();
-        let payload_size: u32 = self.stream.read_u32::<NetworkEndian>()?;
+    fn read_record(&mut self) -> Option<Result<Record, Error>> {
+	match &self.state {
+	    IteratorState::InNormal(ref stream) => {
+		let tag = match stream.try_read_u8() {
+		    Some(Ok(value)) => value,
+		    other => {
+			self.state = IteratorState::Eof;
+			// We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
+			return other
+			    .map(|r| r.map(|_| unreachable!()).or_else(|e| Err(e.into())));
+		    }
+		};
 
-        let id_reader = self.hprof.id_reader;
-        let timestamp = self.hprof.timestamp + timestamp_delta;
+		let timestamp_delta: u64 = match stream.read_u32::<NetworkEndian>() {
+		    Ok(v) => v.into(),
+		    Err(err) => return Some(Err(err.into())),
+		};
+		let payload_size: u32 = match stream.read_u32::<NetworkEndian>() {
+		    Ok(v) => v.into(),
+		    Err(err) => return Some(Err(err.into())),
+		};
 
-        match tag {
-            TAG_STRING => {
-                let (id, data) = read_01_string(self.stream, id_reader, payload_size)?;
-                self.hprof.strings.insert(id, data.clone());
-                Ok(Record::String(timestamp, id, data))
-            }
-            TAG_LOAD_CLASS => {
-                let class_record = read_02_load_class(self.stream, id_reader)?;
+		let id_reader = self.hprof.id_reader;
+		let timestamp = self.hprof.timestamp + timestamp_delta;
 
-                Ok(Record::LoadClass(timestamp, class_record))
-            }
-            TAG_UNLOAD_CLASS => {
-                let serial = read_03_unload_class(self.stream)?;
-
-                Ok(Record::UnloadClass(timestamp, serial))
-            }
-            TAG_STACK_FRAME => {
-                let frame = read_04_frame(self.stream, id_reader)?;
-
-                Ok(Record::StackFrame(timestamp, frame))
-            }
-            TAG_STACK_TRACE => {
-                let trace = read_05_trace(self.stream, id_reader)?;
-
-                Ok(Record::StackTrace(timestamp, trace))
-            }
-            TAG_ALLOC_SITES => {
-                let alloc = read_06_alloc_sites(self.stream)?;
-
-                Ok(Record::AllocSites(timestamp, alloc))
-            }
-            TAG_HEAP_SUMMARY => {
-                let heap_summary = read_07_heap_summary(self.stream)?;
-
-                Ok(Record::HeapSummary(timestamp, heap_summary))
-            }
-            TAG_START_THREAD => {
-                let start_thread = read_0a_start_thread(self.stream, id_reader)?;
-
-                Ok(Record::StartThread(timestamp, start_thread))
-            }
-            TAG_END_THREAD => {
-                let end_thread = read_0b_end_thread(self.stream)?;
-
-                Ok(Record::EndThread(timestamp, end_thread))
-            }
-            _ => Err(Error::UnknownPacket(tag, payload_size)),
-        }
+		match tag {
+		    TAG_STRING => {
+			Some(
+			    read_01_string(*stream, id_reader, payload_size).and_then(
+				|(id, data)| {
+				    self.hprof.strings.insert(id, data.clone());
+				    Ok(Record::String(timestamp, id, data))
+				}
+			    )
+			)
+		    }
+		    TAG_LOAD_CLASS => {
+			Some(
+			    read_02_load_class(*stream, id_reader).and_then(
+				|class_record| Ok(Record::LoadClass(timestamp, class_record))
+			    )
+			)
+		    }
+		    TAG_UNLOAD_CLASS => {
+			Some(
+			    read_03_unload_class(*stream).and_then(
+				|serial| Ok(Record::UnloadClass(timestamp, serial))
+			    )
+			)
+		    }
+		    TAG_STACK_FRAME => {
+			Some(
+			    read_04_frame(*stream, id_reader).and_then(
+				|frame| Ok(Record::StackFrame(timestamp, frame))
+			    )
+			)
+		    }
+		    TAG_STACK_TRACE => {
+			Some(
+			    read_05_trace(*stream, id_reader).and_then(
+				|trace| Ok(Record::StackTrace(timestamp, trace))
+			    )
+			)
+		    }
+		    TAG_ALLOC_SITES => {
+			Some(
+			    read_06_alloc_sites(*stream).and_then(
+				|alloc| Ok(Record::AllocSites(timestamp, alloc))
+			    )
+			)
+		    }
+		    TAG_HEAP_SUMMARY => {
+			Some(
+			    read_07_heap_summary(*stream).and_then(
+				|heap_summary| Ok(Record::HeapSummary(timestamp, heap_summary))
+			    )
+			)
+		    }
+		    TAG_START_THREAD => {
+			Some(
+			    read_0a_start_thread(*stream, id_reader).and_then(
+				|start_thread| Ok(Record::StartThread(timestamp, start_thread))
+			    )
+			)
+		    }
+		    TAG_END_THREAD => {
+			Some(
+			    read_0b_end_thread(*stream).and_then(
+				|end_thread| Ok(Record::EndThread(timestamp, end_thread))
+			    )
+			)
+		    }
+		    TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
+			// TODO: some kind of swap
+			self.state = IteratorState::InData(timestamp, stream.take(payload_size.into()));
+			
+			return self.read_data_record()
+			    
+		    }
+		    _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
+		}
+	    }
+	    _ => unreachable!(),
+	}
     }
 
-    fn read_data_record(tag: u8, timestamp: Ts, stream: &mut Take<R>) -> Result<Record, Error> {
-        let timestamp_delta: u64 = stream.read_u32::<NetworkEndian>()?.into();
-        let payload_size = stream.read_u32::<NetworkEndian>()?;
+    fn read_data_record(&mut self) -> Option<Result<Record, Error>> {
+	match self.state {
+	    IteratorState::InData(ts, ref mut substream) => {
+		let try_tag =  substream.try_read_u8();
+		if let None = try_tag {
+		    // End of data segment
+		    self.state = IteratorState::InNormal(substream.into_inner());
+		    return self.read_record()
+		}
 
-        Err(Error::UnknownPacket(tag, payload_size))
+		// Use lambda to make ? work.
+		let read_data = move || {
+		    let tag = match try_tag {
+			None => {
+			    unreachable!{}
+			}
+			Some(Ok(value)) => value,
+			Some(Err(err)) => {
+			    self.state = IteratorState::Eof;
+			    // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
+			    return Err(err.into());
+			}
+		    };
+		    
+		
+		    let timestamp_delta: u64 = substream.read_u32::<NetworkEndian>()?.into();
+		    let payload_size = substream.read_u32::<NetworkEndian>()?;
+		
+		    match tag {
+			_ => {
+			    return Err(Error::UnknownSubpacket(tag, payload_size));
+			}
+		    }
+		};
+		return Some(read_data())
+	    }
+	    _ => unreachable!()
+	}
     }
 }
 
@@ -161,41 +241,19 @@ impl<'hprof, 'stream, R: Read> Iterator for StreamHprofIterator<'hprof, 'stream,
         loop {
             match &mut self.state {
                 IteratorState::Eof => return None,
-                IteratorState::InNormal => {
-                    let tag = match self.stream.try_read_u8() {
-                        Some(Ok(value)) => value,
-                        other => {
-                            self.state = IteratorState::Eof;
-                            // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
-                            return other
-                                .map(|r| r.map(|_| unreachable!()).or_else(|e| Err(e.into())));
-                        }
-                    };
-                    return match self.read_record(tag) {
-                        Ok(v) => Some(Ok(v)),
-                        Err(e) => {
-                            self.state = IteratorState::Eof;
-                            Some(Err(e))
-                        }
-                    };
-                }
-                IteratorState::InData(ts, ref mut subreader) => {
-                    let ts = *ts;
-                    let tag = match subreader.try_read_u8() {
-                        None => {
-                            // End of data segment
-                            self.state = IteratorState::InNormal;
-                            continue;
-                        }
-                        Some(Ok(value)) => value,
-                        other => {
-                            self.state = IteratorState::Eof;
-                            // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
-                            return other
-                                .map(|r| r.map(|_| unreachable!()).or_else(|e| Err(e.into())));
-                        }
-                    };
-                    return Some(Self::read_data_record(tag, ts, subreader));
+                IteratorState::InNormal(_) => {
+                    return self.read_record().map(|ret| {
+			match ret {
+                            Ok(v) => Ok(v),
+                            Err(e) => {
+				self.state = IteratorState::Eof;
+				Err(e)
+                            }
+			}
+		    })
+		}
+                IteratorState::InData(_, _) => {
+		    return self.read_data_record()
                 }
             }
         }
@@ -220,7 +278,7 @@ mod tests {
         let mut it = hprof.read_hprof(&mut read).unwrap();
 
         for rec in it {
-            //eprintln!("{:?}", rec);
+            // eprintln!("{:?}", rec);
         }
 
         assert!(hprof.timestamp != 0);

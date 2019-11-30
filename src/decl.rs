@@ -14,9 +14,10 @@ pub(crate) const TAG_HEAP_DUMP: u8 = 0x0C;
 pub(crate) const TAG_HEAP_DUMP_SEGMENT: u8 = 0x1C;
 pub(crate) const TAG_HEAP_DUMP_END: u8 = 0x2C;
 
+
 // TODO: u64 or template parameter.  One might use Vec<u8> or some
 // more lightweight container (Id size never change after creation) to
-// be fully bullet-proof.
+// be future-proof.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 #[repr(transparent)]
 pub struct Id(usize);
@@ -189,25 +190,15 @@ pub enum ArrayValue {
 
 #[derive(Clone, Copy, Debug)]
 pub enum FieldLifeTime {
-    Static,
-    Object,
     Const,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum FieldAccess {
-    Private,
-    Protected,
-    Default,
-    Public,
+    Object,
+    Static,
 }
 
 #[derive(Clone, Debug)]
 pub struct FieldInfo {
     name: String,
     type_: FieldType,
-    lifetime: FieldLifeTime,
-    access: FieldAccess,
 }
 
 /**
@@ -215,9 +206,9 @@ Class information: fields, etc.
 */
 #[derive(Clone, Debug)]
 pub struct ClassDescription {
+    const_fields: Vec<(FieldInfo, FieldValue)>,
     object_fields: Vec<FieldInfo>,
-    class_fields: Vec<FieldInfo>,
-    static_fields: Vec<FieldInfo>,
+    static_fields: Vec<(FieldInfo, FieldValue)>,
 }
 
 #[derive(Debug)]
