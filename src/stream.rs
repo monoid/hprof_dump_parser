@@ -3,18 +3,117 @@ use crate::records::*;
 use crate::try_byteorder::ReadBytesTryExt;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io::{BufRead, Read, Take};
 use std::str::from_utf8;
+
+fn read_class_description<R: Read>(
+    substream: &mut R,
+    id_reader: IdReader,
+) -> Result<ClassDescription, Error> {
+    let class_id: Id = id_reader.read_id(substream)?;
+    let stack_trace_serial: SerialNumber = substream.read_u32::<NetworkEndian>()?;
+    let super_class_object_id: Id = id_reader.read_id(substream)?;
+    let class_loader_object_id: Id = id_reader.read_id(substream)?;
+    let signers_object_id: Id = id_reader.read_id(substream)?;
+    let protection_domain_object_id = id_reader.read_id(substream)?;
+    let reserved1 = id_reader.read_id(substream)?;
+    let reserved2 = id_reader.read_id(substream)?;
+
+    let instance_size: u32 = substream.read_u32::<NetworkEndian>()?;
+
+    let const_pool_size: u16 = substream.read_u16::<NetworkEndian>()?;
+    let mut const_fields = Vec::with_capacity(const_pool_size as usize);
+    for idx in 0..const_pool_size {
+        let const_pool_idx: u16 = substream.read_u16::<NetworkEndian>()?;
+        let const_type: FieldType =
+            FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
+        let const_value = read_type_value(substream, const_type, id_reader)?;
+
+        const_fields.push((
+            ConstFieldInfo {
+                const_pool_idx,
+                const_type,
+            },
+            const_value,
+        ));
+    }
+
+    let static_field_num: u16 = substream.read_u16::<NetworkEndian>()?;
+    let mut static_fields = Vec::with_capacity(static_field_num as usize);
+    for id in 0..static_field_num {
+        let name_id: Id = id_reader.read_id(substream)?;
+        let field_type: FieldType =
+            FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
+        let field_value = read_type_value(substream, field_type, id_reader)?;
+
+        static_fields.push((
+            FieldInfo {
+                name_id,
+                field_type,
+            },
+            field_value,
+        ));
+    }
+
+    let instance_fields_num: u16 = substream.read_u16::<NetworkEndian>()?;
+    let mut instance_fields = Vec::with_capacity(instance_fields_num as usize);
+    for id in 0..instance_fields_num {
+        let name_id: Id = id_reader.read_id(substream)?;
+        let field_type: FieldType =
+            FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
+        instance_fields.push(FieldInfo {
+            name_id,
+            field_type,
+        });
+    }
+
+    let object_fields = Vec::new();
+    Ok(ClassDescription {
+        class_id,
+        stack_trace_serial,
+        super_class_object_id,
+        class_loader_object_id,
+        signers_object_id,
+        protection_domain_object_id,
+        reserved1,
+        reserved2,
+
+        instance_size,
+
+        const_fields,
+        static_fields,
+        object_fields,
+    })
+}
+
+fn read_type_value<R: Read>(
+    substream: &mut R,
+    ty: FieldType,
+    id_reader: IdReader,
+) -> Result<FieldValue, Error> {
+    Ok(match ty {
+        FieldType::Object => FieldValue::Object(id_reader.read_id(substream)?),
+        FieldType::Bool => FieldValue::Bool(substream.read_u8()? != 0),
+        FieldType::Char => FieldValue::Char(substream.read_u16::<NetworkEndian>()?),
+        FieldType::Float => FieldValue::Float(substream.read_f32::<NetworkEndian>()?),
+        FieldType::Double => FieldValue::Double(substream.read_f64::<NetworkEndian>()?),
+        FieldType::Byte => FieldValue::Byte(substream.read_i8()?),
+        FieldType::Short => FieldValue::Short(substream.read_i16::<NetworkEndian>()?),
+        FieldType::Int => FieldValue::Int(substream.read_i32::<NetworkEndian>()?),
+        FieldType::Long => FieldValue::Long(substream.read_i64::<NetworkEndian>()?),
+    })
+}
 
 pub struct StreamHprofReader {
     banner: String,
     id_reader: IdReader,
     timestamp: Ts,
-    id_byteorder: ByteOrder,
+    // id_byteorder: ByteOrder,
     load_primitive_arrays: bool,
     load_object_arrays: bool,
     // actually it is only iterator who needs the hash
-    class_info: HashMap<Id, ClassDescription>,
+    pub class_info: HashMap<Id, ClassDescription>,
     // ditto; Strings
     strings: HashMap<Id, Vec<u8>>,
 }
@@ -37,7 +136,6 @@ impl StreamHprofReader {
             banner: String::new(),
             id_reader: IdReader::new(),
             timestamp: 0,
-            id_byteorder: ByteOrder::Native,
             load_primitive_arrays: true,
             load_object_arrays: true,
             class_info: HashMap::new(),
@@ -154,7 +252,6 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                             .and_then(|end_thread| Ok(Record::EndThread(timestamp, end_thread))),
                     ),
                     TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
-                        // TODO: some kind of swap
                         self.state = Some(IteratorState::InData(
                             timestamp,
                             stream.take(payload_size.into()),
@@ -202,11 +299,8 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                             }
                         };
 
-                        let timestamp_delta: u64 = substream.read_u32::<NetworkEndian>()?.into();
-                        let payload_size = substream.read_u32::<NetworkEndian>()?;
-
                         let res = Ok(Record::Dump(
-                            ts + timestamp_delta,
+                            ts,
                             match tag {
                                 TAG_GC_ROOT_UNKNOWN => {
                                     DumpRecord::RootUnknown(id_reader.read_id(&mut substream)?)
@@ -244,7 +338,18 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                     substream.read_u32::<NetworkEndian>()?,
                                     substream.read_u32::<NetworkEndian>()?,
                                 ),
-                                _ => return Err(Error::UnknownSubpacket(tag)),
+                                TAG_GC_CLASS_DUMP => {
+                                    let class_info =
+                                        read_class_description(&mut substream, id_reader)?;
+                                    self.hprof
+                                        .class_info
+                                        .insert(class_info.class_id, class_info.clone());
+                                    DumpRecord::ClassDump(class_info)
+                                }
+                                _ => {
+                                    self.state = Some(IteratorState::Eof);
+                                    return Err(Error::UnknownSubpacket(tag));
+                                }
                             },
                         ));
                         self.state = Some(IteratorState::InData(ts, substream));

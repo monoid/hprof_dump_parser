@@ -1,3 +1,4 @@
+use num_enum::TryFromPrimitive;
 use std::convert::Into;
 use std::io;
 
@@ -162,17 +163,18 @@ pub struct EndThreadRecord {
     pub thread_serial: SerialNumber,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u8)]
 pub enum FieldType {
-    Bool,
-    Byte,
-    Char,
-    Short,
-    Int,
-    Long,
-    Float,
-    Double,
-    Object,
+    Object = 2,
+    Bool = 4,
+    Char = 5,
+    Float = 6,
+    Double = 7,
+    Byte = 8,
+    Short = 9,
+    Int = 10,
+    Long = 11,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -208,10 +210,16 @@ pub enum FieldLifeTime {
     Static,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct ConstFieldInfo {
+    pub const_pool_idx: u16,
+    pub const_type: FieldType,
+}
+
 #[derive(Clone, Debug)]
 pub struct FieldInfo {
-    name: String,
-    type_: FieldType,
+    pub name_id: Id,
+    pub field_type: FieldType,
 }
 
 /**
@@ -219,9 +227,20 @@ Class information: fields, etc.
 */
 #[derive(Clone, Debug)]
 pub struct ClassDescription {
-    const_fields: Vec<(FieldInfo, FieldValue)>,
-    object_fields: Vec<FieldInfo>,
-    static_fields: Vec<(FieldInfo, FieldValue)>,
+    pub class_id: Id,
+    pub stack_trace_serial: SerialNumber,
+    pub super_class_object_id: Id,
+    pub class_loader_object_id: Id,
+    pub signers_object_id: Id,
+    pub protection_domain_object_id: Id,
+    pub reserved1: Id,
+    pub reserved2: Id,
+
+    pub instance_size: u32,
+
+    pub const_fields: Vec<(ConstFieldInfo, FieldValue)>,
+    pub static_fields: Vec<(FieldInfo, FieldValue)>,
+    pub object_fields: Vec<FieldInfo>,
 }
 
 #[derive(Debug)]
@@ -235,7 +254,7 @@ pub enum DumpRecord {
     RootThreadBlock(Id, SerialNumber),
     RootMonitorUsed(Id),
     RootThreadObject(Id, u32, u32),
-    ClassDump,
+    ClassDump(ClassDescription),
     InstanceDump,
     ObjectArrayDump,
     PrimitiveArrayDump,
@@ -248,6 +267,7 @@ pub enum Error {
     IntegerConversionErrror,
     /// Header contains invalid data
     InvalidHeader(&'static str),
+    InvalidField(&'static str),
     /// Invalid UTF-8 string
     InvalidUtf8,
     /// Known packet contains invalid information
