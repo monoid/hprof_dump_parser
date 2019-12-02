@@ -10,6 +10,7 @@ pub struct StreamHprofReader {
     banner: String,
     id_reader: IdReader,
     timestamp: Ts,
+    id_byteorder: ByteOrder,
     load_primitive_arrays: bool,
     load_object_arrays: bool,
     // actually it is only iterator who needs the hash
