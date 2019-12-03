@@ -505,22 +505,19 @@ impl<'hprof, 'stream, R: Read> Iterator for StreamHprofIterator<'hprof, 'stream,
     type Item = Result<Record, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match &mut self.state {
-                Some(IteratorState::Eof) => return None,
-                Some(IteratorState::InNormal(_)) => {
-                    return self.read_record().map(|ret| match ret {
-                        Ok(v) => Ok(v),
-                        Err(e) => {
-                            self.state = Some(IteratorState::Eof);
-                            Err(e)
-                        }
-                    })
-                }
-                Some(IteratorState::InData(_, _)) => return self.read_data_record(),
-                None => panic!("Empty state in next. Shouldn't happen"),
-            }
+        match &mut self.state {
+            Some(IteratorState::Eof) => None,
+            Some(IteratorState::InNormal(_)) => self.read_record(),
+            Some(IteratorState::InData(_, _)) => self.read_data_record(),
+            None => panic!("Empty state in next. Shouldn't happen"),
         }
+        .map(|ret| match ret {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                self.state = Some(IteratorState::Eof);
+                Err(e)
+            }
+        })
     }
 }
 
