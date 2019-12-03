@@ -216,7 +216,7 @@ pub struct ConstFieldInfo {
     pub const_type: FieldType,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct FieldInfo {
     pub name_id: Id,
     pub field_type: FieldType,
@@ -240,7 +240,7 @@ pub struct ClassDescription {
 
     pub const_fields: Vec<(ConstFieldInfo, FieldValue)>,
     pub static_fields: Vec<(FieldInfo, FieldValue)>,
-    pub object_fields: Vec<FieldInfo>,
+    pub instance_fields: Vec<FieldInfo>,
 }
 
 #[derive(Debug)]
@@ -255,9 +255,9 @@ pub enum DumpRecord {
     RootMonitorUsed(Id),
     RootThreadObject(Id, u32, u32),
     ClassDump(ClassDescription),
-    InstanceDump,
-    ObjectArrayDump,
-    PrimitiveArrayDump,
+    InstanceDump(Vec<(Id, Id, FieldInfo, FieldValue)>), // TODO structs
+    ObjectArrayDump(Id, Id, Option<Vec<Id>>),
+    PrimitiveArrayDump(Id, Option<ArrayValue>),
 }
 
 // TODO it would be nice if errors contained file offsets.
@@ -280,7 +280,7 @@ pub enum Error {
     UnknownSubpacket(u8),
     /// Unknown class (found an object of unknown class, thus unknown
     /// structure).  First element is a Class Id, second is an Object Id.
-    UnknownClass(Id, Id),
+    UnknownClass(Id),
     /// Incomplete packet/subpacket
     PrematureEOF,
     /// Generic IO error

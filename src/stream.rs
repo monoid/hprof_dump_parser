@@ -3,7 +3,7 @@ use crate::records::*;
 use crate::try_byteorder::ReadBytesTryExt;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::convert::TryFrom;
+use std::convert::{Into, TryFrom};
 use std::io::{BufRead, Read, Take};
 use std::str::from_utf8;
 
@@ -24,7 +24,7 @@ fn read_class_description<R: Read>(
 
     let const_pool_size: u16 = substream.read_u16::<NetworkEndian>()?;
     let mut const_fields = Vec::with_capacity(const_pool_size as usize);
-    for idx in 0..const_pool_size {
+    for _idx in 0..const_pool_size {
         let const_pool_idx: u16 = substream.read_u16::<NetworkEndian>()?;
         let const_type: FieldType =
             FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
@@ -41,7 +41,7 @@ fn read_class_description<R: Read>(
 
     let static_field_num: u16 = substream.read_u16::<NetworkEndian>()?;
     let mut static_fields = Vec::with_capacity(static_field_num as usize);
-    for id in 0..static_field_num {
+    for _idx in 0..static_field_num {
         let name_id: Id = id_reader.read_id(substream)?;
         let field_type: FieldType =
             FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
@@ -58,7 +58,7 @@ fn read_class_description<R: Read>(
 
     let instance_fields_num: u16 = substream.read_u16::<NetworkEndian>()?;
     let mut instance_fields = Vec::with_capacity(instance_fields_num as usize);
-    for id in 0..instance_fields_num {
+    for _idx in 0..instance_fields_num {
         let name_id: Id = id_reader.read_id(substream)?;
         let field_type: FieldType =
             FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
@@ -68,7 +68,6 @@ fn read_class_description<R: Read>(
         });
     }
 
-    let object_fields = Vec::new();
     Ok(ClassDescription {
         class_id,
         stack_trace_serial,
@@ -83,8 +82,118 @@ fn read_class_description<R: Read>(
 
         const_fields,
         static_fields,
-        object_fields,
+        instance_fields,
     })
+}
+
+fn read_object<R: Read>(
+    stream: &mut R,
+    id_reader: IdReader,
+    class_info: &HashMap<Id, ClassDescription>,
+) -> Result<Vec<(Id, Id, FieldInfo, FieldValue)>, Error> {
+    let object_id: Id = id_reader.read_id(stream)?;
+    let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
+    let class_object_id: Id = id_reader.read_id(stream)?;
+    let data_size: u64 = stream.read_u32::<NetworkEndian>()?.into();
+
+    let mut substream = stream.take(data_size);
+    let mut values = Vec::new();
+
+    // Read data class-by-class, going down into class hierarchy
+    let mut current_class_obj_id = class_object_id;
+    while Into::<u64>::into(current_class_obj_id) != 0 {
+        let class_desc: &ClassDescription = class_info
+            .get(&current_class_obj_id)
+            .ok_or(Error::UnknownClass(current_class_obj_id))?;
+
+        for field_info in class_desc.instance_fields.iter() {
+            let field_value: FieldValue =
+                read_type_value(&mut substream, field_info.field_type, id_reader)?;
+            values.push((object_id, current_class_obj_id, *field_info, field_value));
+        }
+
+        current_class_obj_id = class_desc.super_class_object_id;
+    }
+
+    Ok(values)
+}
+
+fn read_object_array<R: Read>(
+    stream: &mut R,
+    id_reader: IdReader,
+) -> Result<(Id, Id, Vec<Id>), Error> {
+    let object_id: Id = id_reader.read_id(stream)?;
+    let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
+    let num_elements: usize = stream.read_u32::<NetworkEndian>()? as usize;
+    let element_class_id: Id = id_reader.read_id(stream)?;
+
+    let mut res = vec![Id::from(0 as u64); num_elements];
+
+    for elt in res.iter_mut() {
+        *elt = id_reader.read_id(stream)?;
+    }
+
+    Ok((object_id, element_class_id, res))
+}
+
+fn read_primitive_array<R: Read>(
+    stream: &mut R,
+    id_reader: IdReader,
+) -> Result<(Id, ArrayValue), Error> {
+    let object_id: Id = id_reader.read_id(stream)?;
+    let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
+    let num_elemnts: usize = stream.read_u32::<NetworkEndian>()? as usize;
+    let elem_type: FieldType =
+        FieldType::try_from(stream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
+
+    Ok((
+        object_id,
+        match elem_type {
+            FieldType::Object => return Err(Error::InvalidField("object type in primitive array")),
+            FieldType::Bool => {
+                let mut res: Vec<bool> = vec![false; num_elemnts];
+                for elt in res.iter_mut() {
+                    *elt = stream.read_u8()? != 0;
+                }
+                ArrayValue::Bool(res)
+            }
+            FieldType::Char => {
+                let mut res: Vec<u16> = vec![0; num_elemnts];
+                stream.read_u16_into::<NetworkEndian>(&mut res[..])?;
+                ArrayValue::Char(res)
+            }
+            FieldType::Float => {
+                let mut res: Vec<f32> = vec![0.0; num_elemnts];
+                stream.read_f32_into::<NetworkEndian>(&mut res[..])?;
+                ArrayValue::Float(res)
+            }
+            FieldType::Double => {
+                let mut res: Vec<f64> = vec![0.0; num_elemnts];
+                stream.read_f64_into::<NetworkEndian>(&mut res[..])?;
+                ArrayValue::Double(res)
+            }
+            FieldType::Byte => {
+                let mut res: Vec<i8> = vec![0; num_elemnts];
+                stream.read_i8_into(&mut res[..])?;
+                ArrayValue::Byte(res)
+            }
+            FieldType::Short => {
+                let mut res: Vec<i16> = vec![0; num_elemnts];
+                stream.read_i16_into::<NetworkEndian>(&mut res[..])?;
+                ArrayValue::Short(res)
+            }
+            FieldType::Int => {
+                let mut res: Vec<i32> = vec![0; num_elemnts];
+                stream.read_i32_into::<NetworkEndian>(&mut res[..])?;
+                ArrayValue::Int(res)
+            }
+            FieldType::Long => {
+                let mut res: Vec<i64> = vec![0; num_elemnts];
+                stream.read_i64_into::<NetworkEndian>(&mut res[..])?;
+                ArrayValue::Long(res)
+            }
+        },
+    ))
 }
 
 fn read_type_value<R: Read>(
@@ -106,16 +215,14 @@ fn read_type_value<R: Read>(
 }
 
 pub struct StreamHprofReader {
-    banner: String,
+    pub banner: String,
     id_reader: IdReader,
-    timestamp: Ts,
+    pub timestamp: Ts,
     // id_byteorder: ByteOrder,
-    load_primitive_arrays: bool,
-    load_object_arrays: bool,
+    pub load_primitive_arrays: bool,
+    pub load_object_arrays: bool,
     // actually it is only iterator who needs the hash
     pub class_info: HashMap<Id, ClassDescription>,
-    // ditto; Strings
-    strings: HashMap<Id, Vec<u8>>,
 }
 
 enum IteratorState<'stream, R: Read> {
@@ -139,7 +246,6 @@ impl StreamHprofReader {
             load_primitive_arrays: true,
             load_object_arrays: true,
             class_info: HashMap::new(),
-            strings: HashMap::new(),
         }
     }
 
@@ -199,72 +305,77 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
 
                 let timestamp_delta: u64 = match stream.read_u32::<NetworkEndian>() {
                     Ok(v) => v.into(),
-                    Err(err) => return Some(Err(err.into())),
+                    Err(err) => {
+                        self.state = Some(IteratorState::Eof);
+                        return Some(Err(err.into()));
+                    }
                 };
                 let payload_size: u32 = match stream.read_u32::<NetworkEndian>() {
                     Ok(v) => v,
-                    Err(err) => return Some(Err(err.into())),
+                    Err(err) => {
+                        self.state = Some(IteratorState::Eof);
+                        return Some(Err(err.into()));
+                    }
                 };
 
                 let id_reader = self.hprof.id_reader;
                 let timestamp = self.hprof.timestamp + timestamp_delta;
 
-                let retval = match tag {
-                    TAG_STRING => Some(read_01_string(stream, id_reader, payload_size).and_then(
-                        |(id, data)| {
-                            self.hprof.strings.insert(id, data.clone());
-                            Ok(Record::String(timestamp, id, data))
-                        },
-                    )),
-                    TAG_LOAD_CLASS => Some(
-                        read_02_load_class(stream, id_reader).and_then(|class_record| {
-                            Ok(Record::LoadClass(timestamp, class_record))
-                        }),
-                    ),
-                    TAG_UNLOAD_CLASS => Some(
-                        read_03_unload_class(stream)
-                            .and_then(|serial| Ok(Record::UnloadClass(timestamp, serial))),
-                    ),
-                    TAG_STACK_FRAME => Some(
-                        read_04_frame(stream, id_reader)
-                            .and_then(|frame| Ok(Record::StackFrame(timestamp, frame))),
-                    ),
-                    TAG_STACK_TRACE => Some(
-                        read_05_trace(stream, id_reader)
-                            .and_then(|trace| Ok(Record::StackTrace(timestamp, trace))),
-                    ),
-                    TAG_ALLOC_SITES => Some(
-                        read_06_alloc_sites(stream)
-                            .and_then(|alloc| Ok(Record::AllocSites(timestamp, alloc))),
-                    ),
-                    TAG_HEAP_SUMMARY => {
-                        Some(read_07_heap_summary(stream).and_then(|heap_summary| {
-                            Ok(Record::HeapSummary(timestamp, heap_summary))
-                        }))
-                    }
-                    TAG_START_THREAD => Some(
-                        read_0a_start_thread(stream, id_reader).and_then(|start_thread| {
-                            Ok(Record::StartThread(timestamp, start_thread))
-                        }),
-                    ),
-                    TAG_END_THREAD => Some(
-                        read_0b_end_thread(stream)
-                            .and_then(|end_thread| Ok(Record::EndThread(timestamp, end_thread))),
-                    ),
-                    TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
-                        self.state = Some(IteratorState::InData(
-                            timestamp,
-                            stream.take(payload_size.into()),
-                        ));
+                let retval =
+                    match tag {
+                        TAG_STRING => Some(
+                            read_01_string(stream, id_reader, payload_size)
+                                .and_then(|(id, data)| Ok(Record::String(timestamp, id, data))),
+                        ),
+                        TAG_LOAD_CLASS => Some(read_02_load_class(stream, id_reader).and_then(
+                            |class_record| Ok(Record::LoadClass(timestamp, class_record)),
+                        )),
+                        TAG_UNLOAD_CLASS => Some(
+                            read_03_unload_class(stream)
+                                .and_then(|serial| Ok(Record::UnloadClass(timestamp, serial))),
+                        ),
+                        TAG_STACK_FRAME => Some(
+                            read_04_frame(stream, id_reader)
+                                .and_then(|frame| Ok(Record::StackFrame(timestamp, frame))),
+                        ),
+                        TAG_STACK_TRACE => Some(
+                            read_05_trace(stream, id_reader)
+                                .and_then(|trace| Ok(Record::StackTrace(timestamp, trace))),
+                        ),
+                        TAG_ALLOC_SITES => Some(
+                            read_06_alloc_sites(stream)
+                                .and_then(|alloc| Ok(Record::AllocSites(timestamp, alloc))),
+                        ),
+                        TAG_HEAP_SUMMARY => {
+                            Some(read_07_heap_summary(stream).and_then(|heap_summary| {
+                                Ok(Record::HeapSummary(timestamp, heap_summary))
+                            }))
+                        }
+                        TAG_START_THREAD => Some(read_0a_start_thread(stream, id_reader).and_then(
+                            |start_thread| Ok(Record::StartThread(timestamp, start_thread)),
+                        )),
+                        TAG_END_THREAD => {
+                            Some(read_0b_end_thread(stream).and_then(|end_thread| {
+                                Ok(Record::EndThread(timestamp, end_thread))
+                            }))
+                        }
+                        TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
+                            self.state = Some(IteratorState::InData(
+                                timestamp,
+                                stream.take(payload_size.into()),
+                            ));
 
-                        return self.read_data_record();
-                    }
-                    TAG_HEAP_END => {
-                        // No data inside; just try to read next segment
-                        return self.read_data_record();
-                    }
-                    _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
-                };
+                            return self.read_data_record();
+                        }
+                        TAG_HEAP_END => {
+                            // No data inside; just try to read next
+                            // segment recursively
+                            self.state = Some(IteratorState::InNormal(stream));
+
+                            return self.read_record();
+                        }
+                        _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
+                    };
                 self.state = Some(IteratorState::InNormal(stream));
                 retval
             }
@@ -283,14 +394,12 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                     // End of data segment
                     let stream = substream.into_inner();
                     self.state = Some(IteratorState::InNormal(stream));
-                    return self.read_record();
+                    self.read_record()
                 } else {
                     // Use lambda to make ? work.
                     let read_data = move || {
                         let tag = match try_tag {
-                            None => {
-                                unreachable! {}
-                            }
+                            None => unreachable!(),
                             Some(Ok(value)) => value,
                             Some(Err(err)) => {
                                 self.state = Some(IteratorState::Eof);
@@ -346,6 +455,35 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                         .insert(class_info.class_id, class_info.clone());
                                     DumpRecord::ClassDump(class_info)
                                 }
+                                TAG_GC_INSTANCE_DUMP => {
+                                    let object_fields = read_object(
+                                        &mut substream,
+                                        id_reader,
+                                        &self.hprof.class_info,
+                                    )?;
+                                    DumpRecord::InstanceDump(object_fields)
+                                }
+                                TAG_GC_OBJ_ARRAY_DUMP => {
+                                    let (obj_id, class_id, data) =
+                                        read_object_array(&mut substream, id_reader)?;
+                                    let maybe_data = if self.hprof.load_object_arrays {
+                                        Some(data)
+                                    } else {
+                                        None
+                                    };
+
+                                    DumpRecord::ObjectArrayDump(obj_id, class_id, maybe_data)
+                                }
+                                TAG_GC_PRIM_ARRAY_DUMP => {
+                                    let (obj_id, data) =
+                                        read_primitive_array(&mut substream, id_reader)?;
+                                    let maybe_data = if self.hprof.load_primitive_arrays {
+                                        Some(data)
+                                    } else {
+                                        None
+                                    };
+                                    DumpRecord::PrimitiveArrayDump(obj_id, maybe_data)
+                                }
                                 _ => {
                                     self.state = Some(IteratorState::Eof);
                                     return Err(Error::UnknownSubpacket(tag));
@@ -353,7 +491,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                             },
                         ));
                         self.state = Some(IteratorState::InData(ts, substream));
-                        return res;
+                        res
                     };
                     Some(read_data())
                 }
@@ -380,7 +518,7 @@ impl<'hprof, 'stream, R: Read> Iterator for StreamHprofIterator<'hprof, 'stream,
                     })
                 }
                 Some(IteratorState::InData(_, _)) => return self.read_data_record(),
-                None => unreachable!(),
+                None => panic!("Empty state in next. Shouldn't happen"),
             }
         }
     }
@@ -400,8 +538,10 @@ mod tests {
             .expect("./java/hprof.dump not found. Please, create it manually.");
         let mut read = BufReader::new(f);
 
-        let mut hprof = StreamHprofReader::new();
-        let mut it = hprof.read_hprof(&mut read).unwrap();
+        let mut hprof = StreamHprofReader::new()
+            .with_load_object_arrays(false)
+            .with_load_primitive_arrays(false);
+        let it = hprof.read_hprof(&mut read).unwrap();
 
         for rec in it {
             eprintln!("{:?}", rec);
@@ -410,11 +550,5 @@ mod tests {
         assert!(hprof.timestamp != 0);
         assert!(hprof.id_reader.id_size == 8 || hprof.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
         assert_eq!(hprof.banner, "JAVA PROFILE 1.0.2"); // May suddenly fail if your version will change.
-
-        let mut total_size: usize = 0;
-        for (_, v) in hprof.strings {
-            total_size += v.len();
-        }
-        eprintln!("Data size: {}", total_size);
     }
 }
