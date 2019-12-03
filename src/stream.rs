@@ -367,7 +367,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
 
                             return self.read_data_record();
                         }
-                        TAG_HEAP_END => {
+                        TAG_HEAP_DUMP_END => {
                             // No data inside; just try to read next
                             // segment recursively
                             self.state = Some(IteratorState::InNormal(stream));
