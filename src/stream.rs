@@ -306,14 +306,12 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                 let timestamp_delta: u64 = match stream.read_u32::<NetworkEndian>() {
                     Ok(v) => v.into(),
                     Err(err) => {
-                        self.state = Some(IteratorState::Eof);
                         return Some(Err(err.into()));
                     }
                 };
                 let payload_size: u32 = match stream.read_u32::<NetworkEndian>() {
                     Ok(v) => v,
                     Err(err) => {
-                        self.state = Some(IteratorState::Eof);
                         return Some(Err(err.into()));
                     }
                 };
@@ -402,7 +400,6 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                             None => unreachable!(),
                             Some(Ok(value)) => value,
                             Some(Err(err)) => {
-                                self.state = Some(IteratorState::Eof);
                                 // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
                                 return Err(err.into());
                             }
@@ -485,7 +482,6 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                     DumpRecord::PrimitiveArrayDump(obj_id, maybe_data)
                                 }
                                 _ => {
-                                    self.state = Some(IteratorState::Eof);
                                     return Err(Error::UnknownSubpacket(tag));
                                 }
                             },
@@ -511,12 +507,11 @@ impl<'hprof, 'stream, R: Read> Iterator for StreamHprofIterator<'hprof, 'stream,
             Some(IteratorState::InData(_, _)) => self.read_data_record(),
             None => panic!("Empty state in next. Shouldn't happen"),
         }
-        .map(|ret| match ret {
-            Ok(v) => Ok(v),
-            Err(e) => {
+        .map(|ret| {
+            ret.map_err(|e| {
                 self.state = Some(IteratorState::Eof);
-                Err(e)
-            }
+                e
+            })
         })
     }
 }
