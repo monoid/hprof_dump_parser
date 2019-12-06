@@ -74,16 +74,16 @@ pub type SerialNumber = u32;
 
 #[derive(Debug)]
 pub enum Record {
-    String(Ts, Id, Vec<u8>),
-    LoadClass(Ts, ClassRecord),
-    UnloadClass(Ts, SerialNumber),
-    StackFrame(Ts, StackFrameRecord),
-    StackTrace(Ts, StackTraceRecord),
-    AllocSites(Ts, AllocSitesRecord),
-    HeapSummary(Ts, HeapSummaryRecord),
-    StartThread(Ts, StartThreadRecord),
-    EndThread(Ts, EndThreadRecord),
-    Dump(Ts, DumpRecord),
+    String(Id, Vec<u8>),
+    LoadClass(ClassRecord),
+    UnloadClass(SerialNumber),
+    StackFrame(StackFrameRecord),
+    StackTrace(StackTraceRecord),
+    AllocSites(AllocSitesRecord),
+    HeapSummary(HeapSummaryRecord),
+    StartThread(StartThreadRecord),
+    EndThread(EndThreadRecord),
+    Dump(DumpRecord),
 }
 
 #[derive(Clone, Debug)]

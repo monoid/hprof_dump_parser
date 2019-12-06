@@ -277,9 +277,9 @@ impl StreamHprofReader {
             )))?
             .to_string(); // TODO get rid of unwrap
         self.id_reader.id_size = stream.read_u32::<NetworkEndian>()?;
-	if self.id_reader.id_size != 4 && self.id_reader.id_size != 8 {
-	    return Err(Error::IdSizeNotSupported(self.id_reader.id_size));
-	}
+        if self.id_reader.id_size != 4 && self.id_reader.id_size != 8 {
+            return Err(Error::IdSizeNotSupported(self.id_reader.id_size));
+        }
 
         // It can be read as u64 as well, but we follow the spec.
         let hi = stream.read_u32::<NetworkEndian>()? as u64;
@@ -294,7 +294,7 @@ impl StreamHprofReader {
 }
 
 impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
-    fn read_record(&mut self) -> Option<Result<Record, Error>> {
+    fn read_record(&mut self) -> Option<Result<(Ts, Record), Error>> {
         match self.state.take().unwrap() {
             IteratorState::InNormal(stream) => {
                 let tag = match stream.try_read_u8() {
@@ -322,61 +322,61 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                 let id_reader = self.hprof.id_reader;
                 let timestamp = self.hprof.timestamp + timestamp_delta;
 
-                let retval =
-                    match tag {
-                        TAG_STRING => Some(
-                            read_01_string(stream, id_reader, payload_size)
-                                .and_then(|(id, data)| Ok(Record::String(timestamp, id, data))),
-                        ),
-                        TAG_LOAD_CLASS => Some(read_02_load_class(stream, id_reader).and_then(
-                            |class_record| Ok(Record::LoadClass(timestamp, class_record)),
-                        )),
-                        TAG_UNLOAD_CLASS => Some(
-                            read_03_unload_class(stream)
-                                .and_then(|serial| Ok(Record::UnloadClass(timestamp, serial))),
-                        ),
-                        TAG_STACK_FRAME => Some(
-                            read_04_frame(stream, id_reader)
-                                .and_then(|frame| Ok(Record::StackFrame(timestamp, frame))),
-                        ),
-                        TAG_STACK_TRACE => Some(
-                            read_05_trace(stream, id_reader)
-                                .and_then(|trace| Ok(Record::StackTrace(timestamp, trace))),
-                        ),
-                        TAG_ALLOC_SITES => Some(
-                            read_06_alloc_sites(stream)
-                                .and_then(|alloc| Ok(Record::AllocSites(timestamp, alloc))),
-                        ),
-                        TAG_HEAP_SUMMARY => {
-                            Some(read_07_heap_summary(stream).and_then(|heap_summary| {
-                                Ok(Record::HeapSummary(timestamp, heap_summary))
-                            }))
-                        }
-                        TAG_START_THREAD => Some(read_0a_start_thread(stream, id_reader).and_then(
-                            |start_thread| Ok(Record::StartThread(timestamp, start_thread)),
-                        )),
-                        TAG_END_THREAD => {
-                            Some(read_0b_end_thread(stream).and_then(|end_thread| {
-                                Ok(Record::EndThread(timestamp, end_thread))
-                            }))
-                        }
-                        TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
-                            self.state = Some(IteratorState::InData(
-                                timestamp,
-                                stream.take(payload_size.into()),
-                            ));
+                let retval = match tag {
+                    TAG_STRING => Some(
+                        read_01_string(stream, id_reader, payload_size)
+                            .and_then(|(id, data)| Ok((timestamp, Record::String(id, data)))),
+                    ),
+                    TAG_LOAD_CLASS => Some(
+                        read_02_load_class(stream, id_reader).and_then(|class_record| {
+                            Ok((timestamp, Record::LoadClass(class_record)))
+                        }),
+                    ),
+                    TAG_UNLOAD_CLASS => Some(
+                        read_03_unload_class(stream)
+                            .and_then(|serial| Ok((timestamp, Record::UnloadClass(serial)))),
+                    ),
+                    TAG_STACK_FRAME => Some(
+                        read_04_frame(stream, id_reader)
+                            .and_then(|frame| Ok((timestamp, Record::StackFrame(frame)))),
+                    ),
+                    TAG_STACK_TRACE => Some(
+                        read_05_trace(stream, id_reader)
+                            .and_then(|trace| Ok((timestamp, Record::StackTrace(trace)))),
+                    ),
+                    TAG_ALLOC_SITES => Some(
+                        read_06_alloc_sites(stream)
+                            .and_then(|alloc| Ok((timestamp, Record::AllocSites(alloc)))),
+                    ),
+                    TAG_HEAP_SUMMARY => {
+                        Some(read_07_heap_summary(stream).and_then(|heap_summary| {
+                            Ok((timestamp, Record::HeapSummary(heap_summary)))
+                        }))
+                    }
+                    TAG_START_THREAD => Some(read_0a_start_thread(stream, id_reader).and_then(
+                        |start_thread| Ok((timestamp, Record::StartThread(start_thread))),
+                    )),
+                    TAG_END_THREAD => Some(
+                        read_0b_end_thread(stream)
+                            .and_then(|end_thread| Ok((timestamp, Record::EndThread(end_thread)))),
+                    ),
+                    TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
+                        self.state = Some(IteratorState::InData(
+                            timestamp,
+                            stream.take(payload_size.into()),
+                        ));
 
-                            return self.read_data_record();
-                        }
-                        TAG_HEAP_DUMP_END => {
-                            // No data inside; just try to read next
-                            // segment recursively
-                            self.state = Some(IteratorState::InNormal(stream));
+                        return self.read_data_record();
+                    }
+                    TAG_HEAP_DUMP_END => {
+                        // No data inside; just try to read next
+                        // segment recursively
+                        self.state = Some(IteratorState::InNormal(stream));
 
-                            return self.read_record();
-                        }
-                        _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
-                    };
+                        return self.read_record();
+                    }
+                    _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
+                };
                 self.state = Some(IteratorState::InNormal(stream));
                 retval
             }
@@ -384,7 +384,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
         }
     }
 
-    fn read_data_record(&mut self) -> Option<Result<Record, Error>> {
+    fn read_data_record(&mut self) -> Option<Result<(Ts, Record), Error>> {
         let id_reader = self.hprof.id_reader;
         let state = self.state.take().unwrap();
 
@@ -408,9 +408,9 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                             }
                         };
 
-                        let res = Ok(Record::Dump(
+                        let res = Ok((
                             ts,
-                            match tag {
+                            Record::Dump(match tag {
                                 TAG_GC_ROOT_UNKNOWN => {
                                     DumpRecord::RootUnknown(id_reader.read_id(&mut substream)?)
                                 }
@@ -487,7 +487,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 _ => {
                                     return Err(Error::UnknownSubpacket(tag));
                                 }
-                            },
+                            }),
                         ));
                         self.state = Some(IteratorState::InData(ts, substream));
                         res
@@ -501,7 +501,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
 }
 
 impl<'hprof, 'stream, R: Read> Iterator for StreamHprofIterator<'hprof, 'stream, R> {
-    type Item = Result<Record, Error>;
+    type Item = Result<(Ts, Record), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.state {
