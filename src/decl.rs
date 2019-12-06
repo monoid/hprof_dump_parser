@@ -263,6 +263,8 @@ pub enum DumpRecord {
 // TODO it would be nice if errors contained file offsets.
 #[derive(Debug)]
 pub enum Error {
+    /// Id size not supported
+    IdSizeNotSupported(u32),
     /// Integer conversion
     IntegerConversionErrror,
     /// Header contains invalid data

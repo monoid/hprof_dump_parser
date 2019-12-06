@@ -277,6 +277,9 @@ impl StreamHprofReader {
             )))?
             .to_string(); // TODO get rid of unwrap
         self.id_reader.id_size = stream.read_u32::<NetworkEndian>()?;
+	if self.id_reader.id_size != 4 && self.id_reader.id_size != 8 {
+	    return Err(Error::IdSizeNotSupported(self.id_reader.id_size));
+	}
 
         // It can be read as u64 as well, but we follow the spec.
         let hi = stream.read_u32::<NetworkEndian>()? as u64;
