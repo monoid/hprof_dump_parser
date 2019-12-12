@@ -203,45 +203,44 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                         let res = Ok((
                             ts,
                             Record::Dump(match tag {
-                                TAG_GC_ROOT_UNKNOWN => {
-                                    DumpRecord::RootUnknown(id_reader.read_id(&mut substream)?)
-                                }
-                                TAG_GC_ROOT_JNI_GLOBAL => DumpRecord::RootJniGlobal(
-                                    id_reader.read_id(&mut substream)?,
-                                    id_reader.read_id(&mut substream)?,
-                                ),
-                                TAG_GC_ROOT_JNI_LOCAL => DumpRecord::RootJniLocal(
-                                    id_reader.read_id(&mut substream)?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                ),
-                                TAG_GC_ROOT_JAVA_FRAME => DumpRecord::RootJavaFrame(
-                                    id_reader.read_id(&mut substream)?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                ),
-                                TAG_GC_ROOT_NATIVE_STACK => DumpRecord::RootNativeStack(
-                                    id_reader.read_id(&mut substream)?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                ),
-                                TAG_GC_ROOT_STICKY_CLASS => {
-                                    DumpRecord::RootStickyClass(id_reader.read_id(&mut substream)?)
-                                }
-                                TAG_GC_ROOT_THREAD_BLOCK => DumpRecord::RootThreadBlock(
-                                    id_reader.read_id(&mut substream)?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                ),
-                                TAG_GC_ROOT_MONITOR_USED => {
-                                    DumpRecord::RootMonitorUsed(id_reader.read_id(&mut substream)?)
-                                }
-                                TAG_GC_ROOT_THREAD_OBJ => DumpRecord::RootThreadObject(
-                                    id_reader.read_id(&mut substream)?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                    substream.read_u32::<NetworkEndian>()?,
-                                ),
+                                TAG_GC_ROOT_UNKNOWN => DumpRecord::RootUnknown {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                },
+                                TAG_GC_ROOT_JNI_GLOBAL => DumpRecord::RootJniGlobal {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                    jni_global_ref: id_reader.read_id(&mut substream)?,
+                                },
+                                TAG_GC_ROOT_JNI_LOCAL => DumpRecord::RootJniLocal {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
+                                    frame_number: substream.read_u32::<NetworkEndian>()?,
+                                },
+                                TAG_GC_ROOT_JAVA_FRAME => DumpRecord::RootJavaFrame {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
+                                    frame_number: substream.read_u32::<NetworkEndian>()?,
+                                },
+                                TAG_GC_ROOT_NATIVE_STACK => DumpRecord::RootNativeStack {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
+                                },
+                                TAG_GC_ROOT_STICKY_CLASS => DumpRecord::RootStickyClass {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                },
+                                TAG_GC_ROOT_THREAD_BLOCK => DumpRecord::RootThreadBlock {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
+                                },
+                                TAG_GC_ROOT_MONITOR_USED => DumpRecord::RootMonitorUsed {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                },
+                                TAG_GC_ROOT_THREAD_OBJ => DumpRecord::RootThreadObject {
+                                    obj_id: id_reader.read_id(&mut substream)?,
+                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
+                                    stack_trace_serial: substream.read_u32::<NetworkEndian>()?,
+                                },
                                 TAG_GC_CLASS_DUMP => {
-                                    let class_info =
-                                        read_20_class_dump(&mut substream, id_reader)?;
+                                    let class_info = read_20_class_dump(&mut substream, id_reader)?;
                                     self.hprof
                                         .class_info
                                         .insert(class_info.class_id, class_info.clone());

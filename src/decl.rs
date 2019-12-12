@@ -245,15 +245,42 @@ pub struct ClassDescription {
 
 #[derive(Debug)]
 pub enum DumpRecord {
-    RootUnknown(Id),
-    RootJniGlobal(Id, Id),
-    RootJniLocal(Id, SerialNumber, u32),
-    RootJavaFrame(Id, SerialNumber, u32),
-    RootNativeStack(Id, SerialNumber),
-    RootStickyClass(Id),
-    RootThreadBlock(Id, SerialNumber),
-    RootMonitorUsed(Id),
-    RootThreadObject(Id, u32, u32),
+    RootUnknown {
+        obj_id: Id,
+    },
+    RootJniGlobal {
+        obj_id: Id,
+        jni_global_ref: Id,
+    },
+    RootJniLocal {
+        obj_id: Id,
+        thread_serial: SerialNumber,
+        frame_number: u32,
+    },
+    RootJavaFrame {
+        obj_id: Id,
+        thread_serial: SerialNumber,
+        frame_number: u32,
+    },
+    RootNativeStack {
+        obj_id: Id,
+        thread_serial: SerialNumber,
+    },
+    RootStickyClass {
+        obj_id: Id,
+    },
+    RootThreadBlock {
+        obj_id: Id,
+        thread_serial: SerialNumber,
+    },
+    RootMonitorUsed {
+        obj_id: Id,
+    },
+    RootThreadObject {
+        obj_id: Id,
+        thread_serial: SerialNumber,
+        stack_trace_serial: SerialNumber,
+    },
     ClassDump(ClassDescription),
     InstanceDump(Vec<(Id, Id, FieldInfo, FieldValue)>), // TODO structs
     ObjectArrayDump(Id, Id, Option<Vec<Id>>),
