@@ -186,7 +186,7 @@ pub(crate) fn read_0b_end_thread<T: Read>(stream: &mut T) -> Result<EndThreadRec
     })
 }
 
-pub(crate) fn read_class_description<R: Read>(
+pub(crate) fn read_20_class_dump<R: Read>(
     substream: &mut R,
     id_reader: IdReader,
 ) -> Result<ClassDescription, Error> {
@@ -265,7 +265,7 @@ pub(crate) fn read_class_description<R: Read>(
     })
 }
 
-pub(crate) fn read_object<R: Read>(
+pub(crate) fn read_21_instance_dump<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
     class_info: &HashMap<Id, ClassDescription>,
@@ -297,7 +297,7 @@ pub(crate) fn read_object<R: Read>(
     Ok(values)
 }
 
-pub(crate) fn read_object_array<R: Read>(
+pub(crate) fn read_22_object_array<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
 ) -> Result<(Id, Id, Vec<Id>), Error> {
@@ -315,7 +315,7 @@ pub(crate) fn read_object_array<R: Read>(
     Ok((object_id, element_class_id, res))
 }
 
-pub(crate) fn read_primitive_array<R: Read>(
+pub(crate) fn read_23_primitive_array<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
 ) -> Result<(Id, ArrayValue), Error> {

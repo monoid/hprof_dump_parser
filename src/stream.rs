@@ -241,14 +241,14 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 ),
                                 TAG_GC_CLASS_DUMP => {
                                     let class_info =
-                                        read_class_description(&mut substream, id_reader)?;
+                                        read_20_class_dump(&mut substream, id_reader)?;
                                     self.hprof
                                         .class_info
                                         .insert(class_info.class_id, class_info.clone());
                                     DumpRecord::ClassDump(class_info)
                                 }
                                 TAG_GC_INSTANCE_DUMP => {
-                                    let object_fields = read_object(
+                                    let object_fields = read_21_instance_dump(
                                         &mut substream,
                                         id_reader,
                                         &self.hprof.class_info,
@@ -257,7 +257,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 }
                                 TAG_GC_OBJ_ARRAY_DUMP => {
                                     let (obj_id, class_id, data) =
-                                        read_object_array(&mut substream, id_reader)?;
+                                        read_22_object_array(&mut substream, id_reader)?;
                                     let maybe_data = if self.hprof.load_object_arrays {
                                         Some(data)
                                     } else {
@@ -268,7 +268,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 }
                                 TAG_GC_PRIM_ARRAY_DUMP => {
                                     let (obj_id, data) =
-                                        read_primitive_array(&mut substream, id_reader)?;
+                                        read_23_primitive_array(&mut substream, id_reader)?;
                                     let maybe_data = if self.hprof.load_primitive_arrays {
                                         Some(data)
                                     } else {
