@@ -186,7 +186,97 @@ pub(crate) fn read_0b_end_thread<T: Read>(stream: &mut T) -> Result<EndThreadRec
     })
 }
 
-pub(crate) fn read_20_class_dump<R: Read>(
+pub(crate) fn read_data_ff_root_unknown<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootUnknown {
+        obj_id: id_reader.read_id(stream)?,
+    })
+}
+
+pub(crate) fn read_data_01_root_jni_global<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootJniGlobal {
+        obj_id: id_reader.read_id(stream)?,
+        jni_global_ref: id_reader.read_id(stream)?,
+    })
+}
+
+pub(crate) fn read_data_02_root_jni_local<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootJniLocal {
+        obj_id: id_reader.read_id(stream)?,
+        thread_serial: stream.read_u32::<NetworkEndian>()?,
+        frame_number: stream.read_u32::<NetworkEndian>()?,
+    })
+}
+
+pub(crate) fn read_data_03_root_java_frame<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootJavaFrame {
+        obj_id: id_reader.read_id(stream)?,
+        thread_serial: stream.read_u32::<NetworkEndian>()?,
+        frame_number: stream.read_u32::<NetworkEndian>()?,
+    })
+}
+
+pub(crate) fn read_data_04_root_native_stack<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootNativeStack {
+        obj_id: id_reader.read_id(stream)?,
+        thread_serial: stream.read_u32::<NetworkEndian>()?,
+    })
+}
+
+pub(crate) fn read_data_05_root_sticky_class<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootStickyClass {
+        obj_id: id_reader.read_id(stream)?,
+    })
+}
+
+pub(crate) fn read_data_06_root_thread_block<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootThreadBlock {
+        obj_id: id_reader.read_id(stream)?,
+        thread_serial: stream.read_u32::<NetworkEndian>()?,
+    })
+}
+
+pub(crate) fn read_data_07_root_monitor_used<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootMonitorUsed {
+        obj_id: id_reader.read_id(stream)?,
+    })
+}
+
+pub(crate) fn read_data_08_root_thread_obj<T: Read>(
+    stream: &mut T,
+    id_reader: IdReader,
+) -> Result<DumpRecord, Error> {
+    Ok(DumpRecord::RootThreadObject {
+        obj_id: id_reader.read_id(stream)?,
+        thread_serial: stream.read_u32::<NetworkEndian>()?,
+        stack_trace_serial: stream.read_u32::<NetworkEndian>()?,
+    })
+}
+
+pub(crate) fn read_data_20_class_dump<R: Read>(
     substream: &mut R,
     id_reader: IdReader,
 ) -> Result<ClassDescription, Error> {
@@ -265,7 +355,7 @@ pub(crate) fn read_20_class_dump<R: Read>(
     })
 }
 
-pub(crate) fn read_21_instance_dump<R: Read>(
+pub(crate) fn read_data_21_instance_dump<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
     class_info: &HashMap<Id, ClassDescription>,
@@ -297,7 +387,7 @@ pub(crate) fn read_21_instance_dump<R: Read>(
     Ok(values)
 }
 
-pub(crate) fn read_22_object_array<R: Read>(
+pub(crate) fn read_data_22_object_array<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
 ) -> Result<(Id, Id, Vec<Id>), Error> {
@@ -315,7 +405,7 @@ pub(crate) fn read_22_object_array<R: Read>(
     Ok((object_id, element_class_id, res))
 }
 
-pub(crate) fn read_23_primitive_array<R: Read>(
+pub(crate) fn read_data_23_primitive_array<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
 ) -> Result<(Id, ArrayValue), Error> {

@@ -203,51 +203,43 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                         let res = Ok((
                             ts,
                             Record::Dump(match tag {
-                                TAG_GC_ROOT_UNKNOWN => DumpRecord::RootUnknown {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                },
-                                TAG_GC_ROOT_JNI_GLOBAL => DumpRecord::RootJniGlobal {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                    jni_global_ref: id_reader.read_id(&mut substream)?,
-                                },
-                                TAG_GC_ROOT_JNI_LOCAL => DumpRecord::RootJniLocal {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
-                                    frame_number: substream.read_u32::<NetworkEndian>()?,
-                                },
-                                TAG_GC_ROOT_JAVA_FRAME => DumpRecord::RootJavaFrame {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
-                                    frame_number: substream.read_u32::<NetworkEndian>()?,
-                                },
-                                TAG_GC_ROOT_NATIVE_STACK => DumpRecord::RootNativeStack {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
-                                },
-                                TAG_GC_ROOT_STICKY_CLASS => DumpRecord::RootStickyClass {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                },
-                                TAG_GC_ROOT_THREAD_BLOCK => DumpRecord::RootThreadBlock {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
-                                },
-                                TAG_GC_ROOT_MONITOR_USED => DumpRecord::RootMonitorUsed {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                },
-                                TAG_GC_ROOT_THREAD_OBJ => DumpRecord::RootThreadObject {
-                                    obj_id: id_reader.read_id(&mut substream)?,
-                                    thread_serial: substream.read_u32::<NetworkEndian>()?,
-                                    stack_trace_serial: substream.read_u32::<NetworkEndian>()?,
-                                },
+                                TAG_GC_ROOT_UNKNOWN => {
+                                    read_data_ff_root_unknown(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_JNI_GLOBAL => {
+                                    read_data_01_root_jni_global(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_JNI_LOCAL => {
+                                    read_data_02_root_jni_local(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_JAVA_FRAME => {
+                                    read_data_03_root_java_frame(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_NATIVE_STACK => {
+                                    read_data_04_root_native_stack(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_STICKY_CLASS => {
+                                    read_data_05_root_sticky_class(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_THREAD_BLOCK => {
+                                    read_data_06_root_thread_block(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_MONITOR_USED => {
+                                    read_data_07_root_monitor_used(&mut substream, id_reader)?
+                                }
+                                TAG_GC_ROOT_THREAD_OBJ => {
+                                    read_data_08_root_thread_obj(&mut substream, id_reader)?
+                                }
                                 TAG_GC_CLASS_DUMP => {
-                                    let class_info = read_20_class_dump(&mut substream, id_reader)?;
+                                    let class_info =
+                                        read_data_20_class_dump(&mut substream, id_reader)?;
                                     self.hprof
                                         .class_info
                                         .insert(class_info.class_id, class_info.clone());
                                     DumpRecord::ClassDump(class_info)
                                 }
                                 TAG_GC_INSTANCE_DUMP => {
-                                    let object_fields = read_21_instance_dump(
+                                    let object_fields = read_data_21_instance_dump(
                                         &mut substream,
                                         id_reader,
                                         &self.hprof.class_info,
@@ -256,7 +248,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 }
                                 TAG_GC_OBJ_ARRAY_DUMP => {
                                     let (obj_id, class_id, data) =
-                                        read_22_object_array(&mut substream, id_reader)?;
+                                        read_data_22_object_array(&mut substream, id_reader)?;
                                     let maybe_data = if self.hprof.load_object_arrays {
                                         Some(data)
                                     } else {
@@ -267,7 +259,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 }
                                 TAG_GC_PRIM_ARRAY_DUMP => {
                                     let (obj_id, data) =
-                                        read_23_primitive_array(&mut substream, id_reader)?;
+                                        read_data_23_primitive_array(&mut substream, id_reader)?;
                                     let maybe_data = if self.hprof.load_primitive_arrays {
                                         Some(data)
                                     } else {
