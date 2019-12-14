@@ -177,6 +177,20 @@ pub enum FieldType {
     Long = 11,
 }
 
+impl FieldType {
+    /// Return storage byte size for each type.  Note that FieldType::Bool takes 1 byte.
+    /// Return Error for FieldType::Object.
+    pub fn byte_size(self) -> Result<u64, Error> {
+        Ok(match self {
+            FieldType::Object => return Err(Error::InvalidField("object type in primitive array")),
+            FieldType::Byte | FieldType::Bool => 1,
+            FieldType::Char | FieldType::Short => 2,
+            FieldType::Float | FieldType::Int => 4,
+            FieldType::Double | FieldType::Long => 8,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum FieldValue {
     Bool(bool),
@@ -243,7 +257,44 @@ pub struct ClassDescription {
     pub instance_fields: Vec<FieldInfo>,
 }
 
-#[derive(Debug)]
+/**
+Instance dump.
+ */
+#[derive(Clone, Debug)]
+pub struct InstanceDump {
+    pub object_id: Id,
+    pub stack_trace_serial: SerialNumber,
+    pub class_object_id: Id,
+    pub data_size: u32,
+    pub values: Vec<(FieldInfo, FieldValue)>,
+}
+
+/**
+Array of Object (or any subclass).  It contains only Ids of objects,
+i.e. their addresses.  You have to resolve them yourself.
+ */
+#[derive(Clone, Debug)]
+pub struct ObjectArrayDump {
+    pub object_id: Id,
+    pub stack_trace_serial: SerialNumber,
+    pub num_elements: u32,
+    pub element_class_id: Id,
+    pub values: Option<Vec<Id>>,
+}
+
+/**
+Array of primitive values.
+ */
+#[derive(Clone, Debug)]
+pub struct PrimitiveArrayDump {
+    pub object_id: Id,
+    pub stack_trace_serial: SerialNumber,
+    pub num_elements: u32,
+    pub elem_type: FieldType,
+    pub values: Option<ArrayValue>,
+}
+
+#[derive(Clone, Debug)]
 pub enum DumpRecord {
     RootUnknown {
         obj_id: Id,
@@ -282,9 +333,9 @@ pub enum DumpRecord {
         stack_trace_serial: SerialNumber,
     },
     ClassDump(ClassDescription),
-    InstanceDump(Vec<(Id, Id, FieldInfo, FieldValue)>), // TODO structs
-    ObjectArrayDump(Id, Id, Option<Vec<Id>>),
-    PrimitiveArrayDump(Id, Option<ArrayValue>),
+    InstanceDump(InstanceDump),
+    ObjectArrayDump(ObjectArrayDump),
+    PrimitiveArrayDump(PrimitiveArrayDump),
 }
 
 // TODO it would be nice if errors contained file offsets.

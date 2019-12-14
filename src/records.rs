@@ -2,7 +2,7 @@ use crate::decl::*;
 use byteorder::{NativeEndian, NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::convert::{Into, TryFrom, TryInto};
-use std::io::Read;
+use std::io::{self, Read};
 
 #[derive(Clone, Copy, Debug)]
 pub enum ByteOrder {
@@ -359,13 +359,13 @@ pub(crate) fn read_data_21_instance_dump<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
     class_info: &HashMap<Id, ClassDescription>,
-) -> Result<Vec<(Id, Id, FieldInfo, FieldValue)>, Error> {
+) -> Result<InstanceDump, Error> {
     let object_id: Id = id_reader.read_id(stream)?;
     let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
     let class_object_id: Id = id_reader.read_id(stream)?;
-    let data_size: u64 = stream.read_u32::<NetworkEndian>()?.into();
+    let data_size = stream.read_u32::<NetworkEndian>()?;
 
-    let mut substream = stream.take(data_size);
+    let mut substream = stream.take(data_size.into());
     let mut values = Vec::new();
 
     // Read data class-by-class, going down into class hierarchy
@@ -378,91 +378,130 @@ pub(crate) fn read_data_21_instance_dump<R: Read>(
         for field_info in class_desc.instance_fields.iter() {
             let field_value: FieldValue =
                 read_type_value(&mut substream, field_info.field_type, id_reader)?;
-            values.push((object_id, current_class_obj_id, *field_info, field_value));
+            values.push((*field_info, field_value));
         }
 
         current_class_obj_id = class_desc.super_class_object_id;
     }
 
-    Ok(values)
+    Ok(InstanceDump {
+        object_id,
+        stack_trace_serial,
+        class_object_id,
+        data_size,
+        values,
+    })
 }
 
 pub(crate) fn read_data_22_object_array<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
-) -> Result<(Id, Id, Vec<Id>), Error> {
+    load_object_arrays: bool,
+) -> Result<ObjectArrayDump, Error> {
     let object_id: Id = id_reader.read_id(stream)?;
     let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
-    let num_elements: usize = stream.read_u32::<NetworkEndian>()? as usize;
+    let num_elements = stream.read_u32::<NetworkEndian>()?;
     let element_class_id: Id = id_reader.read_id(stream)?;
 
-    let mut res = vec![Id::from(0 as u64); num_elements];
+    // TODO: TryInto for num_elements
+    let values = if load_object_arrays {
+        let mut values = vec![Id::from(0 as u64); num_elements as usize];
 
-    for elt in res.iter_mut() {
-        *elt = id_reader.read_id(stream)?;
-    }
+        for elt in values.iter_mut() {
+            *elt = id_reader.read_id(stream)?;
+        }
 
-    Ok((object_id, element_class_id, res))
+        Some(values)
+    } else {
+        for _ in 0..num_elements {
+            id_reader.read_id(stream)?;
+        }
+        None
+    };
+
+    Ok(ObjectArrayDump {
+        object_id,
+        stack_trace_serial,
+        num_elements,
+        element_class_id,
+        values,
+    })
 }
 
 pub(crate) fn read_data_23_primitive_array<R: Read>(
     stream: &mut R,
     id_reader: IdReader,
-) -> Result<(Id, ArrayValue), Error> {
+    load_primitive_arrays: bool,
+) -> Result<PrimitiveArrayDump, Error> {
     let object_id: Id = id_reader.read_id(stream)?;
     let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
-    let num_elemnts: usize = stream.read_u32::<NetworkEndian>()? as usize;
+    let num_elements = stream.read_u32::<NetworkEndian>()?;
+    // TODO: use TryInto
+    let num_elements_usize = num_elements as usize;
     let elem_type: FieldType =
         FieldType::try_from(stream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
 
-    Ok((
-        object_id,
-        match elem_type {
+    let values = if load_primitive_arrays {
+        Some(match elem_type {
             FieldType::Object => return Err(Error::InvalidField("object type in primitive array")),
             FieldType::Bool => {
-                let mut res: Vec<bool> = vec![false; num_elemnts];
+                let mut res: Vec<bool> = vec![false; num_elements_usize];
                 for elt in res.iter_mut() {
                     *elt = stream.read_u8()? != 0;
                 }
                 ArrayValue::Bool(res)
             }
             FieldType::Char => {
-                let mut res: Vec<u16> = vec![0; num_elemnts];
+                let mut res: Vec<u16> = vec![0; num_elements_usize];
                 stream.read_u16_into::<NetworkEndian>(&mut res[..])?;
                 ArrayValue::Char(res)
             }
             FieldType::Float => {
-                let mut res: Vec<f32> = vec![0.0; num_elemnts];
+                let mut res: Vec<f32> = vec![0.0; num_elements_usize];
                 stream.read_f32_into::<NetworkEndian>(&mut res[..])?;
                 ArrayValue::Float(res)
             }
             FieldType::Double => {
-                let mut res: Vec<f64> = vec![0.0; num_elemnts];
+                let mut res: Vec<f64> = vec![0.0; num_elements_usize];
                 stream.read_f64_into::<NetworkEndian>(&mut res[..])?;
                 ArrayValue::Double(res)
             }
             FieldType::Byte => {
-                let mut res: Vec<i8> = vec![0; num_elemnts];
+                let mut res: Vec<i8> = vec![0; num_elements_usize];
                 stream.read_i8_into(&mut res[..])?;
                 ArrayValue::Byte(res)
             }
             FieldType::Short => {
-                let mut res: Vec<i16> = vec![0; num_elemnts];
+                let mut res: Vec<i16> = vec![0; num_elements_usize];
                 stream.read_i16_into::<NetworkEndian>(&mut res[..])?;
                 ArrayValue::Short(res)
             }
             FieldType::Int => {
-                let mut res: Vec<i32> = vec![0; num_elemnts];
+                let mut res: Vec<i32> = vec![0; num_elements_usize];
                 stream.read_i32_into::<NetworkEndian>(&mut res[..])?;
                 ArrayValue::Int(res)
             }
             FieldType::Long => {
-                let mut res: Vec<i64> = vec![0; num_elemnts];
+                let mut res: Vec<i64> = vec![0; num_elements_usize];
                 stream.read_i64_into::<NetworkEndian>(&mut res[..])?;
                 ArrayValue::Long(res)
             }
-        },
-    ))
+        })
+    } else {
+        let field_byte_size = elem_type.byte_size()?;
+        io::copy(
+            &mut stream.take(Into::<u64>::into(num_elements) * field_byte_size),
+            &mut io::sink(),
+        )?;
+        None
+    };
+    Ok(PrimitiveArrayDump {
+        object_id,
+        stack_trace_serial,
+        num_elements,
+        elem_type,
+        values,
+    })
 }
 
 pub(crate) fn read_type_value<R: Read>(

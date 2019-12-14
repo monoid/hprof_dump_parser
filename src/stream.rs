@@ -247,25 +247,18 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                     DumpRecord::InstanceDump(object_fields)
                                 }
                                 TAG_GC_OBJ_ARRAY_DUMP => {
-                                    let (obj_id, class_id, data) =
-                                        read_data_22_object_array(&mut substream, id_reader)?;
-                                    let maybe_data = if self.hprof.load_object_arrays {
-                                        Some(data)
-                                    } else {
-                                        None
-                                    };
-
-                                    DumpRecord::ObjectArrayDump(obj_id, class_id, maybe_data)
+                                    DumpRecord::ObjectArrayDump(read_data_22_object_array(
+                                        &mut substream,
+                                        id_reader,
+                                        self.hprof.load_object_arrays,
+                                    )?)
                                 }
                                 TAG_GC_PRIM_ARRAY_DUMP => {
-                                    let (obj_id, data) =
-                                        read_data_23_primitive_array(&mut substream, id_reader)?;
-                                    let maybe_data = if self.hprof.load_primitive_arrays {
-                                        Some(data)
-                                    } else {
-                                        None
-                                    };
-                                    DumpRecord::PrimitiveArrayDump(obj_id, maybe_data)
+                                    DumpRecord::PrimitiveArrayDump(read_data_23_primitive_array(
+                                        &mut substream,
+                                        id_reader,
+                                        self.hprof.load_primitive_arrays,
+                                    )?)
                                 }
                                 _ => {
                                     return Err(Error::UnknownSubpacket(tag));
