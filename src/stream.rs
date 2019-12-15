@@ -307,6 +307,7 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::BufReader;
+    use std::iter::Iterator;
 
     // Prepare dump before running this test with a tool in ${PROJECT}/java dir
     #[ignore]
@@ -316,17 +317,17 @@ mod tests {
             .expect("./java/hprof.dump not found. Please, create it manually.");
         let mut read = BufReader::new(f);
 
-        let mut hprof = StreamHprofReader::new()
+        let hprof = StreamHprofReader::new()
             .with_load_object_arrays(false)
             .with_load_primitive_arrays(false);
-        let it = hprof.read_hprof(&mut read).unwrap();
+        let mut it = hprof.read_hprof(&mut read).unwrap();
 
-        for rec in it {
+        for rec in it.by_ref() {
             eprintln!("{:?}", rec);
         }
 
-        assert!(hprof.timestamp != 0);
-        assert!(hprof.id_reader.id_size == 8 || hprof.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
-        assert_eq!(hprof.banner, "JAVA PROFILE 1.0.2"); // May suddenly fail if your version will change.
+        assert!(it.timestamp != 0);
+        assert!(it.id_reader.id_size == 8 || it.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
+        assert_eq!(it.banner, "JAVA PROFILE 1.0.2"); // May suddenly fail if your version will change.
     }
 }
