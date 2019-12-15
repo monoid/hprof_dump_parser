@@ -7,14 +7,9 @@ use std::io::{BufRead, Read, Take};
 use std::str::from_utf8;
 
 pub struct StreamHprofReader {
-    pub banner: String,
-    id_reader: IdReader,
-    pub timestamp: Ts,
-    // id_byteorder: ByteOrder,
+    pub id_byteorder: ByteOrder,
     pub load_primitive_arrays: bool,
     pub load_object_arrays: bool,
-    // actually it is only iterator who needs the hash
-    pub class_info: HashMap<Id, ClassDescription>,
 }
 
 enum IteratorState<'stream, R: Read> {
@@ -24,25 +19,26 @@ enum IteratorState<'stream, R: Read> {
 }
 
 pub struct StreamHprofIterator<'stream, 'hprof, R: Read> {
+    pub banner: String,
+    pub timestamp: Ts,
     state: Option<IteratorState<'stream, R>>,
     // TODO: just copy params from StreamHprofReader
-    hprof: &'hprof mut StreamHprofReader,
+    hprof: &'hprof StreamHprofReader,
+    class_info: HashMap<Id, ClassDescription>,
+    id_reader: IdReader,
 }
 
 impl StreamHprofReader {
     pub fn new() -> Self {
         Self {
-            banner: String::new(),
-            id_reader: IdReader::new(),
-            timestamp: 0,
+            id_byteorder: ByteOrder::Native,
             load_primitive_arrays: true,
             load_object_arrays: true,
-            class_info: HashMap::new(),
         }
     }
 
     pub fn with_id_byteorder(mut self, id_byteorder: ByteOrder) -> Self {
-        self.id_reader.order = id_byteorder;
+        self.id_byteorder = id_byteorder;
         self
     }
 
@@ -57,31 +53,43 @@ impl StreamHprofReader {
     }
 
     pub fn read_hprof<'stream, 'hprof, R: BufRead>(
-        &'hprof mut self,
+        &'hprof self,
         stream: &'stream mut R,
     ) -> Result<StreamHprofIterator<'stream, 'hprof, R>, Error> {
         // Read header first
         // Using split looks unreliable.  Reading byte-by-byte looks more reliable and doesn't require
         // a BufRead (though why not?).
-        self.banner = from_utf8(&stream.split(0x00).next().unwrap()?[..])
+        let banner = from_utf8(&stream.split(0x00).next().unwrap()?[..])
             .or(Err(Error::InvalidHeader(
                 "Failed to parse file banner in header",
             )))?
             .to_string(); // TODO get rid of unwrap
-        self.id_reader.id_size = stream.read_u32::<NetworkEndian>()?;
-        if self.id_reader.id_size != 4 && self.id_reader.id_size != 8 {
-            return Err(Error::IdSizeNotSupported(self.id_reader.id_size));
+        let mut id_reader = IdReader::new();
+        id_reader.order = self.id_byteorder;
+        id_reader.id_size = stream.read_u32::<NetworkEndian>()?;
+        if id_reader.id_size != 4 && id_reader.id_size != 8 {
+            return Err(Error::IdSizeNotSupported(id_reader.id_size));
         }
 
         // It can be read as u64 as well, but we follow the spec.
-        let hi = stream.read_u32::<NetworkEndian>()? as u64;
-        let lo = stream.read_u32::<NetworkEndian>()? as u64;
-        self.timestamp = (hi << 32) | lo;
+        let hi: u64 = stream.read_u32::<NetworkEndian>()?.into();
+        let lo: u64 = stream.read_u32::<NetworkEndian>()?.into();
+        let timestamp = (hi << 32) | lo;
 
         Ok(StreamHprofIterator {
+            banner,
+            timestamp,
             state: Some(IteratorState::InNormal(stream)),
             hprof: self,
+            class_info: HashMap::new(),
+            id_reader,
         })
+    }
+}
+
+impl Default for StreamHprofReader {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -111,8 +119,8 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                     }
                 };
 
-                let id_reader = self.hprof.id_reader;
-                let timestamp = self.hprof.timestamp + timestamp_delta;
+                let id_reader = self.id_reader;
+                let timestamp = self.timestamp + timestamp_delta;
 
                 let retval = match tag {
                     TAG_STRING => Some(
@@ -177,7 +185,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
     }
 
     fn read_data_record(&mut self) -> Option<Result<(Ts, Record), Error>> {
-        let id_reader = self.hprof.id_reader;
+        let id_reader = self.id_reader;
         let state = self.state.take().unwrap();
 
         match state {
@@ -233,8 +241,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 TAG_GC_CLASS_DUMP => {
                                     let class_info =
                                         read_data_20_class_dump(&mut substream, id_reader)?;
-                                    self.hprof
-                                        .class_info
+                                    self.class_info
                                         .insert(class_info.class_id, class_info.clone());
                                     DumpRecord::ClassDump(class_info)
                                 }
@@ -242,7 +249,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                     let object_fields = read_data_21_instance_dump(
                                         &mut substream,
                                         id_reader,
-                                        &self.hprof.class_info,
+                                        &self.class_info,
                                     )?;
                                     DumpRecord::InstanceDump(object_fields)
                                 }
