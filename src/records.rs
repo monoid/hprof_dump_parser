@@ -1,4 +1,5 @@
 use crate::decl::*;
+use crate::reader::*;
 use byteorder::{NativeEndian, NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::convert::{Into, TryFrom, TryInto};
@@ -50,18 +51,17 @@ impl Default for IdReader {
     }
 }
 
-pub(crate) fn read_01_string<T: Read>(
-    stream: &mut T,
+pub(crate) fn read_01_string<'a, R: Read + ReadHprofString<'a>>(
+    stream: &mut R,
     id_reader: IdReader,
     mut payload_size: u32,
-) -> Result<(Id, Vec<u8>), Error> {
+) -> Result<(Id, R::String), Error> {
     let id = id_reader.read_id(stream)?;
     payload_size -= id_reader.id_size as u32;
 
-    // Read string as byte vec.  Contrary to documentation, it
-    // is not always a valid utf-8 string.
-    let mut data = vec![0; payload_size.try_into().unwrap()];
-    stream.read_exact(&mut data[..])?;
+    // Read string as byte vec or byte slice.  Contrary to
+    // documentation, it is not always a valid utf-8 string.
+    let data = stream.read_string(payload_size as usize)?;
 
     Ok((id, data))
 }
