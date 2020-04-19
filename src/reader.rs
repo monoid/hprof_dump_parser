@@ -28,6 +28,7 @@ pub trait HprofRead<Bytes> {
     fn read_id(&mut self) -> Result<Id, Error>;
     /// While HPROF spec states that String packets contain UTF-8, it
     /// is not always so.  So we keep them as bytes.
+    // TODO: use crate for "non-utf8" strings.
     fn read_bytes(&mut self, size: u64) -> Result<Bytes, Error>;
     fn skip_data(&mut self, size: u64) -> Result<(), Error>;
 
@@ -41,12 +42,24 @@ pub trait HprofRead<Bytes> {
     // Other try_* are not used
 }
 
-pub struct Take<T> {
-    parent: T,
+trait Taker {
+    type TakeType;
+    fn take(self) -> Result<Self::TakeType, Error>;
 }
 
-impl<T> Take<T> {
-    pub fn into_inner(self) -> T {
+trait Untake {
+    type UntakeType;
+    fn into_inner(self) -> Result<Self::UntakeType, Error>;
+}
+
+pub struct TakeBytes<'a, T> {
+    data: &'a mut T,
+    parent: &'a mut T,
+    limit: u64,
+}
+
+impl<'a, T> TakeBytes<'a, T> {
+    pub fn into_inner(self) -> &'a T {
 	self.parent
     }
 }
