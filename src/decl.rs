@@ -374,17 +374,17 @@ impl From<io::Error> for Error {
 }
 
 
-pub(crate) trait ReadHprofString<'a> {
+pub trait ReadHprofString<'a> {
     type String;
 
     fn read_string(&mut self, len: usize) -> io::Result<Self::String>;
 }
 
 #[repr(transparent)]
-pub(crate) struct Memory<'a>(pub(crate) &'a [u8]);
+pub struct Memory<'a>(pub(crate) &'a [u8]);
 
 #[repr(transparent)]
-pub(crate) struct Stream<R: io::BufRead>(R);
+pub struct Stream<R: io::BufRead>(pub(crate) R);
 
 impl<'a> ReadHprofString<'a> for Memory<'a>
 where &'a [u8]: io::Read {

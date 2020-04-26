@@ -1,10 +1,11 @@
 use crate::decl::*;
 use crate::records::*;
+use crate::reader::*;
 use crate::try_byteorder::ReadBytesTryExt;
 use crate::reader::{MainState, TakeState};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::io::{BufRead, Read};
+use std::io::BufRead;
 use std::str::from_utf8;
 
 pub struct StreamHprofReader {
@@ -13,20 +14,16 @@ pub struct StreamHprofReader {
     pub load_object_arrays: bool,
 }
 
-enum IteratorState<'a, R, T>
-where R: MainState<'a>,
-      T: TakeState<'a> {
+enum IteratorState<R, T> {
     Eof,
     InData(Ts, T),
     InNormal(R),
 }
 
-pub struct StreamHprofIterator<'stream, 'hprof, R, T>
-where R: MainState<'stream, Take=T>,
-      T: TakeState<'stream, Main=R> {
+pub struct StreamHprofIterator<'hprof, R, T> {
     pub banner: String,
     pub timestamp: Ts,
-    state: Option<IteratorState<'stream, R, T>>,
+    state: Option<IteratorState<R, T>>,
     // TODO: just copy params from StreamHprofReader
     hprof: &'hprof StreamHprofReader,
     class_info: HashMap<Id, ClassDescription>,
@@ -57,10 +54,24 @@ impl StreamHprofReader {
         self
     }
 
-    pub fn read_hprof<'stream, 'hprof, R, T> (
+    pub fn read_hprof_from_stream<'hprof, R: BufRead>(
         &'hprof self,
         stream: R,
-    ) -> Result<StreamHprofIterator<'stream, 'hprof, R, T>, Error>
+    ) -> Result<StreamHprofIterator<'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>, Error> {
+        self.read_hprof(MainStream(Stream(stream)))
+    }
+
+    pub fn read_hprof_from_memory<'data, 'hprof, R: BufRead>(
+        &'hprof self,
+        data: &'data [u8],
+    ) -> Result<StreamHprofIterator<'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>, Error> {
+        self.read_hprof(MainStream(Memory(data)))
+    }
+
+    pub fn read_hprof<'stream, 'hprof, R, T> (
+        &'hprof self,
+        mut stream: R,
+    ) -> Result<StreamHprofIterator<'hprof, R, T>, Error>
     where R: MainState<'stream, Take=T>,
           T: TakeState<'stream, Main=R> {
         // Read header first
@@ -101,12 +112,12 @@ impl Default for StreamHprofReader {
     }
 }
 
-impl<'stream, 'hprof, R, T> StreamHprofIterator<'stream, 'hprof, R, T> 
+impl<'stream, 'hprof, R, T> StreamHprofIterator<'hprof, R, T> 
 where R: MainState<'stream, Take=T>,
       T: TakeState<'stream, Main=R> {
     fn read_record(&mut self) -> Option<Result<(Ts, Record), Error>> {
         match self.state.take().unwrap() {
-            IteratorState::InNormal(main) => {
+            IteratorState::InNormal(mut main) => {
                 let stream = main.reader();
                 let tag = match stream.try_read_u8() {
                     Some(Ok(value)) => value,
@@ -205,8 +216,7 @@ where R: MainState<'stream, Take=T>,
 
         match state {
             IteratorState::InData(ts, mut subdata) => {
-                let substream = subdata.reader();
-                let try_tag = substream.try_read_u8();
+                let try_tag = subdata.reader().try_read_u8();
                 if try_tag.is_none() {
                     // End of data segment
                     let main = subdata.into_inner();
@@ -215,6 +225,7 @@ where R: MainState<'stream, Take=T>,
                 } else {
                     // Use lambda to make ? work.
                     let read_data = move || {
+                        let mut substream = subdata.reader();
                         let tag = match try_tag {
                             None => unreachable!(),
                             Some(Ok(value)) => value,
@@ -299,7 +310,7 @@ where R: MainState<'stream, Take=T>,
     }
 }
 
-impl<'stream, 'hprof, R, T> Iterator for StreamHprofIterator<'stream, 'hprof, R, T>
+impl<'stream, 'hprof, R, T> Iterator for StreamHprofIterator<'hprof, R, T>
 where R: MainState<'stream, Take=T>,
       T: TakeState<'stream, Main=R> {
     type Item = Result<(Ts, Record), Error>;
@@ -338,7 +349,7 @@ mod tests {
         let hprof = StreamHprofReader::new()
             .with_load_object_arrays(false)
             .with_load_primitive_arrays(false);
-        let mut it = hprof.read_hprof(&mut read).unwrap();
+        let mut it = hprof.read_hprof_from_stream(&mut read).unwrap();
 
         for rec in it.by_ref() {
             eprintln!("{:?}", rec);

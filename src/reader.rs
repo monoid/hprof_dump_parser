@@ -1,8 +1,8 @@
 use crate::decl::*;
-use std::io::BufRead;
+use std::io::{BufRead, Take};
 
 
-pub(crate) trait MainState<'a> {
+pub trait MainState<'a> {
     type Take;
     type Stream: BufRead + ReadHprofString<'a>;
 
@@ -10,7 +10,7 @@ pub(crate) trait MainState<'a> {
     fn reader(&mut self) -> &mut Self::Stream;
 }
 
-pub(crate) trait TakeState<'a> {
+pub trait TakeState<'a> {
     type Main;
     type Stream: BufRead + ReadHprofString<'a>;
 
@@ -60,6 +60,38 @@ impl<'a> TakeState<'a> for TakeMemory<'a> {
 
     fn reader(&mut self) -> &mut Self::Stream {
         &mut self.data
+    }
+
+}
+
+pub struct MainStream<R>(pub(crate) R);
+
+pub struct TakeStream<R: BufRead>(pub(crate) Stream<Take<R>>);
+
+
+impl<'a, R: BufRead + ReadHprofString<'a>> MainState<'a> for MainStream<R> {
+    type Take = TakeStream<R>;
+    type Stream = R;
+
+    fn take(self, len: usize) -> Result<Self::Take, Error> {
+        Ok(TakeStream(Stream(self.0.take(len as u64))))
+    }
+
+    fn reader(&mut self) -> &mut Self::Stream {
+        &mut self.0
+    }
+}
+
+impl<'a, R: BufRead + ReadHprofString<'a>> TakeState<'a> for TakeStream<R> {
+    type Main = MainStream<R>;
+    type Stream = Stream<Take<R>>;
+
+    fn into_inner(self) -> Self::Main {
+        MainStream((self.0).0.into_inner())
+    }
+
+    fn reader(&mut self) -> &mut Self::Stream {
+        &mut self.0
     }
 
 }
