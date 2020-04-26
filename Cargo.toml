@@ -9,4 +9,3 @@ edition = "2018"
 [dependencies]
 byteorder = "1"
 num_enum = "0"
-bstr = "0.2"

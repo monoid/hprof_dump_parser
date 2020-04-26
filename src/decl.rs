@@ -372,3 +372,131 @@ impl From<io::Error> for Error {
         Error::UnderlyingIOError(error)
     }
 }
+
+
+pub(crate) trait ReadHprofString<'a> {
+    type String;
+
+    fn read_string(&mut self, len: usize) -> io::Result<Self::String>;
+}
+
+#[repr(transparent)]
+pub(crate) struct Memory<'a>(pub(crate) &'a [u8]);
+
+#[repr(transparent)]
+pub(crate) struct Stream<R: io::BufRead>(R);
+
+impl<'a> ReadHprofString<'a> for Memory<'a>
+where &'a [u8]: io::Read {
+    type String = &'a [u8];
+
+    fn read_string(&mut self, len: usize) -> io::Result<&'a [u8]> {
+        if len <= self.0.len() {
+            let (result, next) = self.0.split_at(len);
+            self.0 = next;
+            Ok(result)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof, "not enough data")
+            )
+        }
+    }
+}
+
+impl<'a> io::Read for Memory<'a> {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl<'a> io::BufRead for Memory<'a> {
+    #[inline]
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.0.fill_buf()
+    }
+
+    #[inline]
+    fn consume(&mut self, amt: usize) {
+        self.0.consume(amt)
+    }
+}
+
+impl<'a, R: io::BufRead> ReadHprofString<'a> for Stream<R> {
+    type String = Vec<u8>;
+
+    fn read_string(&mut self, len: usize) -> io::Result<Vec<u8>> {
+        let mut data = vec![0; len];
+        self.0.read_exact(&mut data[..])?;
+        Ok(data)
+    }
+}
+
+impl<R: io::BufRead> io::Read for Stream<R> {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl<R: io::BufRead> io::BufRead for Stream<R> {
+    #[inline]
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.0.fill_buf()
+    }
+
+    #[inline]
+    fn consume(&mut self, amt: usize) {
+        self.0.consume(amt)
+    }
+}
+
+
+/*
+ T'is da sketch.
+
+We have
+
+enum State<Read, ReadTake> {
+   Main(R),
+   Take(Take),
+}
+
+We have to switch from R to Take and back.
+
+trait ToTake {
+   type Take;
+   fn to_take(self, size: usize) -> io::Result<Self::Take>;
+}
+
+trait ToMain {
+   type Main;
+   fn to_main(self) -> io::Result<Self::Main>;
+}
+
+R: Read, ReadHprofString, ToTake
+Take: Read, ReadHprofString, ToMain
+
+But it seems that limiting is required to implement the code that uses trait.
+
+Another alternative:
+
+trait SubstreamSwitch {
+   type Reader: Read + ReadHprofString
+
+   // In case of Read, it is either R or Take<R>...  Hmm...
+   fn reader(&mut self) -> &mut Self::Reader;
+
+   fn switchToTake(&mut self, len: usize) -> Result<()>;
+   fn switchToMain(&mut self) -> Result<()>;
+}
+
+enum StreamState {
+  ...
+}
+
+enum SliceState {
+  ...
+}
+
+*/

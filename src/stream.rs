@@ -1,9 +1,10 @@
 use crate::decl::*;
 use crate::records::*;
 use crate::try_byteorder::ReadBytesTryExt;
+use crate::reader::{MainState, TakeState};
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::io::{BufRead, Read, Take};
+use std::io::{BufRead, Read};
 use std::str::from_utf8;
 
 pub struct StreamHprofReader {
@@ -12,16 +13,20 @@ pub struct StreamHprofReader {
     pub load_object_arrays: bool,
 }
 
-enum IteratorState<'stream, R: Read> {
+enum IteratorState<'a, R, T>
+where R: MainState<'a>,
+      T: TakeState<'a> {
     Eof,
-    InData(Ts, Take<&'stream mut R>),
-    InNormal(&'stream mut R),
+    InData(Ts, T),
+    InNormal(R),
 }
 
-pub struct StreamHprofIterator<'stream, 'hprof, R: Read> {
+pub struct StreamHprofIterator<'stream, 'hprof, R, T>
+where R: MainState<'stream, Take=T>,
+      T: TakeState<'stream, Main=R> {
     pub banner: String,
     pub timestamp: Ts,
-    state: Option<IteratorState<'stream, R>>,
+    state: Option<IteratorState<'stream, R, T>>,
     // TODO: just copy params from StreamHprofReader
     hprof: &'hprof StreamHprofReader,
     class_info: HashMap<Id, ClassDescription>,
@@ -52,28 +57,31 @@ impl StreamHprofReader {
         self
     }
 
-    pub fn read_hprof<'stream, 'hprof, R: BufRead>(
+    pub fn read_hprof<'stream, 'hprof, R, T> (
         &'hprof self,
-        stream: &'stream mut R,
-    ) -> Result<StreamHprofIterator<'stream, 'hprof, R>, Error> {
+        stream: R,
+    ) -> Result<StreamHprofIterator<'stream, 'hprof, R, T>, Error>
+    where R: MainState<'stream, Take=T>,
+          T: TakeState<'stream, Main=R> {
         // Read header first
         // Using split looks unreliable.  Reading byte-by-byte looks more reliable and doesn't require
         // a BufRead (though why not?).
-        let banner = from_utf8(&stream.split(0x00).next().unwrap()?[..])
+        
+        let banner = from_utf8(&stream.reader().split(0x00).next().unwrap()?[..])
             .or(Err(Error::InvalidHeader(
                 "Failed to parse file banner in header",
             )))?
             .to_string(); // TODO get rid of unwrap
         let mut id_reader = IdReader::new();
         id_reader.order = self.id_byteorder;
-        id_reader.id_size = stream.read_u32::<NetworkEndian>()?;
+        id_reader.id_size = stream.reader().read_u32::<NetworkEndian>()?;
         if id_reader.id_size != 4 && id_reader.id_size != 8 {
             return Err(Error::IdSizeNotSupported(id_reader.id_size));
         }
 
         // It can be read as u64 as well, but we follow the spec.
-        let hi: u64 = stream.read_u32::<NetworkEndian>()?.into();
-        let lo: u64 = stream.read_u32::<NetworkEndian>()?.into();
+        let hi: u64 = stream.reader().read_u32::<NetworkEndian>()?.into();
+        let lo: u64 = stream.reader().read_u32::<NetworkEndian>()?.into();
         let timestamp = (hi << 32) | lo;
 
         Ok(StreamHprofIterator {
@@ -93,10 +101,13 @@ impl Default for StreamHprofReader {
     }
 }
 
-impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
+impl<'stream, 'hprof, R, T> StreamHprofIterator<'stream, 'hprof, R, T> 
+where R: MainState<'stream, Take=T>,
+      T: TakeState<'stream, Main=R> {
     fn read_record(&mut self) -> Option<Result<(Ts, Record), Error>> {
         match self.state.take().unwrap() {
-            IteratorState::InNormal(stream) => {
+            IteratorState::InNormal(main) => {
+                let stream = main.reader();
                 let tag = match stream.try_read_u8() {
                     Some(Ok(value)) => value,
                     other => {
@@ -163,7 +174,11 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                     TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
                         self.state = Some(IteratorState::InData(
                             timestamp,
-                            stream.take(payload_size.into()),
+                            // TODO aviod as usize
+                            match main.take(payload_size as usize) {
+                                Ok(take) => take,
+                                Err(err) => return Some(Err(err.into()))
+                            }
                         ));
 
                         return self.read_data_record();
@@ -171,13 +186,13 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                     TAG_HEAP_DUMP_END => {
                         // No data inside; just try to read next
                         // segment recursively
-                        self.state = Some(IteratorState::InNormal(stream));
+                        self.state = Some(IteratorState::InNormal(main));
 
                         return self.read_record();
                     }
                     _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
                 };
-                self.state = Some(IteratorState::InNormal(stream));
+                self.state = Some(IteratorState::InNormal(main));
                 retval
             }
             _ => unreachable!(),
@@ -189,12 +204,13 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
         let state = self.state.take().unwrap();
 
         match state {
-            IteratorState::InData(ts, mut substream) => {
+            IteratorState::InData(ts, mut subdata) => {
+                let substream = subdata.reader();
                 let try_tag = substream.try_read_u8();
                 if try_tag.is_none() {
                     // End of data segment
-                    let stream = substream.into_inner();
-                    self.state = Some(IteratorState::InNormal(stream));
+                    let main = subdata.into_inner();
+                    self.state = Some(IteratorState::InNormal(main));
                     self.read_record()
                 } else {
                     // Use lambda to make ? work.
@@ -272,7 +288,7 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
                                 }
                             }),
                         ));
-                        self.state = Some(IteratorState::InData(ts, substream));
+                        self.state = Some(IteratorState::InData(ts, subdata));
                         res
                     };
                     Some(read_data())
@@ -283,11 +299,13 @@ impl<'stream, 'hprof, R: Read> StreamHprofIterator<'stream, 'hprof, R> {
     }
 }
 
-impl<'hprof, 'stream, R: Read> Iterator for StreamHprofIterator<'hprof, 'stream, R> {
+impl<'stream, 'hprof, R, T> Iterator for StreamHprofIterator<'stream, 'hprof, R, T>
+where R: MainState<'stream, Take=T>,
+      T: TakeState<'stream, Main=R> {
     type Item = Result<(Ts, Record), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.state {
+        match self.state {
             Some(IteratorState::Eof) => None,
             Some(IteratorState::InNormal(_)) => self.read_record(),
             Some(IteratorState::InData(_, _)) => self.read_data_record(),
