@@ -30,6 +30,10 @@ pub struct StreamHprofIterator<'hprof, R, T> {
     id_reader: IdReader,
 }
 
+pub type ReadHprofIterator<'hprof, R> = StreamHprofIterator<'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>;
+
+pub type MemoryHprofIterator<'data, 'hprof> = StreamHprofIterator<'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>;
+
 impl StreamHprofReader {
     pub fn new() -> Self {
         Self {
@@ -57,14 +61,14 @@ impl StreamHprofReader {
     pub fn read_hprof_from_stream<'hprof, R: BufRead>(
         &'hprof self,
         stream: R,
-    ) -> Result<StreamHprofIterator<'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>, Error> {
+    ) -> Result<ReadHprofIterator<'hprof, R>, Error> {
         self.read_hprof(MainStream(Stream(stream)))
     }
 
     pub fn read_hprof_from_memory<'data, 'hprof, R: BufRead>(
         &'hprof self,
         data: &'data [u8],
-    ) -> Result<StreamHprofIterator<'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>, Error> {
+    ) -> Result<MemoryHprofIterator<'data, 'hprof>, Error> {
         self.read_hprof(MainStream(Memory(data)))
     }
 
