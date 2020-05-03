@@ -351,7 +351,7 @@ where R: MainState<'stream, T> + 'stream,
 mod tests {
     use super::*;
     use std::fs::File;
-    use std::io::{Read, BufReader};
+    use std::io::BufReader;
     use std::iter::Iterator;
 
     // Prepare dump before running this test with a tool in ${PROJECT}/java dir
@@ -379,17 +379,16 @@ mod tests {
     #[ignore]
     #[test]
     fn test_with_4g_memory() {
-        let mut f = File::open("./java/dump.hprof")
+        use memmap::MmapOptions;
+        let f = File::open("./java/dump.hprof")
             .expect("./java/hprof.dump not found. Please, create it manually.");
 
-        // TODO: mmap
-        let mut data = Vec::new();
-        f.read_to_end(&mut data).unwrap();
+        let mmap = unsafe { MmapOptions::new().map(&f).unwrap() };
 
         let hprof = StreamHprofReader::new()
             .with_load_object_arrays(false)
             .with_load_primitive_arrays(false);
-        let mut it = hprof.read_hprof_from_memory(&data).unwrap();
+        let mut it = hprof.read_hprof_from_memory(&mmap).unwrap();
 
         for rec in it.by_ref() {
             eprintln!("{:?}", rec);

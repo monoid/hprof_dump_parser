@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 byteorder = "1"
 num_enum = "0"
+
+[dev-dependencies]
+memmap = "0.7.0"
