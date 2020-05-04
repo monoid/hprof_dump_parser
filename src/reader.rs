@@ -5,7 +5,8 @@ use std::io::{self, BufRead, Take};
 pub trait ReadHprofString<'a> {
     type String;
 
-    fn read_string(&mut self, len: usize) -> io::Result<Self::String>;
+    /// We use u64 for len as all length in HPROF format are u32.
+    fn read_string(&mut self, len: u32) -> io::Result<Self::String>;
 }
 
 #[repr(transparent)]
@@ -18,7 +19,8 @@ impl<'a> ReadHprofString<'a> for Memory<'a>
 where &'a [u8]: io::Read {
     type String = &'a [u8];
 
-    fn read_string(&mut self, len: usize) -> io::Result<&'a [u8]> {
+    fn read_string(&mut self, len: u32) -> io::Result<&'a [u8]> {
+        let len = len as usize;
         if len <= self.0.len() {
             let (result, next) = self.0.split_at(len);
             self.0 = next;
@@ -53,8 +55,8 @@ impl<'a> io::BufRead for Memory<'a> {
 impl<'a, R: io::BufRead> ReadHprofString<'a> for Stream<R> {
     type String = Vec<u8>;
 
-    fn read_string(&mut self, len: usize) -> io::Result<Vec<u8>> {
-        let mut data = vec![0; len];
+    fn read_string(&mut self, len: u32) -> io::Result<Vec<u8>> {
+        let mut data = vec![0; len as usize];
         self.0.read_exact(&mut data[..])?;
         Ok(data)
     }
@@ -82,7 +84,7 @@ impl<R: io::BufRead> io::BufRead for Stream<R> {
 pub trait MainState<'a, Take> {
     type Stream: BufRead + ReadHprofString<'a>;
 
-    fn take(self, len: usize) -> Result<Take, Error>;
+    fn take(self, len: u32) -> Result<Take, Error>;
     fn reader(&mut self) -> &mut Self::Stream;
 }
 
@@ -100,7 +102,11 @@ pub(crate) struct MainMemory<'a> {
 impl<'a> MainState<'a, TakeMemory<'a>> for MainMemory<'a> {
     type Stream = Memory<'a>;
 
-    fn take(self, len: usize) -> Result<TakeMemory<'a>, Error> {
+    fn take(self, len: u32) -> Result<TakeMemory<'a>, Error> {
+        use std::mem::size_of;
+        static_assert!(size_of::<u32>() <= size_of::<usize>());
+
+        let len = len as usize;
         if len > self.data.0.len() {
             Err(Error::PrematureEOF)
         } else {
@@ -145,7 +151,7 @@ pub struct TakeStream<R: BufRead>(pub(crate) Stream<Take<R>>);
 impl<'a, R: BufRead + ReadHprofString<'a>> MainState<'a, TakeStream<R>> for MainStream<R> {
     type Stream = R;
 
-    fn take(self, len: usize) -> Result<TakeStream<R>, Error> {
+    fn take(self, len: u32) -> Result<TakeStream<R>, Error> {
         Ok(TakeStream(Stream(self.0.take(len as u64))))
     }
 

@@ -150,7 +150,7 @@ where R: MainState<'stream, T>,
                         return Some(Err(err.into()));
                     }
                 };
-                let payload_size: u32 = match stream.read_u32::<NetworkEndian>() {
+                let payload_size = match stream.read_u32::<NetworkEndian>() {
                     Ok(v) => v,
                     Err(err) => {
                         return Some(Err(err.into()));
@@ -201,8 +201,7 @@ where R: MainState<'stream, T>,
                     TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
                         self.state = Some(IteratorState::InData(
                             timestamp,
-                            // TODO aviod as usize
-                            match main.take(payload_size as usize) {
+                            match main.take(payload_size) {
                                 Ok(take) => take,
                                 Err(err) => return Some(Err(err.into()))
                             }
