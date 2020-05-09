@@ -1,4 +1,5 @@
 use crate::decl::*;
+use crate::reader::*;
 use byteorder::{NativeEndian, NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::convert::{Into, TryFrom, TryInto};
@@ -50,18 +51,17 @@ impl Default for IdReader {
     }
 }
 
-pub(crate) fn read_01_string<T: Read>(
-    stream: &mut T,
+pub(crate) fn read_01_string<'a, R: Read + ReadHprofString<'a>>(
+    stream: &mut R,
     id_reader: IdReader,
     mut payload_size: u32,
-) -> Result<(Id, Vec<u8>), Error> {
+) -> Result<(Id, R::String), Error> {
     let id = id_reader.read_id(stream)?;
-    payload_size -= id_reader.id_size as u32;
+    payload_size -= id_reader.id_size;
 
-    // Read string as byte vec.  Contrary to documentation, it
-    // is not always a valid utf-8 string.
-    let mut data = vec![0; payload_size.try_into().unwrap()];
-    stream.read_exact(&mut data[..])?;
+    // Read string as byte vec or byte slice.  Contrary to
+    // documentation, it is not always a valid utf-8 string.
+    let data = stream.read_string(payload_size)?;
 
     Ok((id, data))
 }
@@ -365,7 +365,7 @@ pub(crate) fn read_data_21_instance_dump<R: Read>(
     let class_object_id: Id = id_reader.read_id(stream)?;
     let data_size = stream.read_u32::<NetworkEndian>()?;
 
-    let mut substream = stream.take(data_size.into());
+    let mut substream = stream.take(data_size as u64);
     let mut values = Vec::new();
 
     // Read data class-by-class, going down into class hierarchy
@@ -403,7 +403,8 @@ pub(crate) fn read_data_22_object_array<R: Read>(
     let num_elements = stream.read_u32::<NetworkEndian>()?;
     let element_class_id: Id = id_reader.read_id(stream)?;
 
-    // TODO: TryInto for num_elements
+    // We cast u32 to usize here and at other places, however,
+    // elsewhere we have a static_assert that u32 fits usize.
     let values = if load_object_arrays {
         let mut values = vec![Id::from(0 as u64); num_elements as usize];
 
@@ -439,7 +440,7 @@ pub(crate) fn read_data_23_primitive_array<R: Read>(
     // TODO: use TryInto
     let num_elements_usize = num_elements as usize;
     let elem_type: FieldType =
-        FieldType::try_from(stream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
+        FieldType::try_from(stream.read_u8()?).or(Err(Error::InvalidField("type")))?;
 
     let values = if load_primitive_arrays {
         Some(match elem_type {
@@ -490,7 +491,7 @@ pub(crate) fn read_data_23_primitive_array<R: Read>(
     } else {
         let field_byte_size = elem_type.byte_size()?;
         io::copy(
-            &mut stream.take(Into::<u64>::into(num_elements) * field_byte_size),
+            &mut stream.take((num_elements as u64) * field_byte_size),
             &mut io::sink(),
         )?;
         None

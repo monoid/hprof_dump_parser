@@ -73,8 +73,8 @@ pub type Ts = u64;
 pub type SerialNumber = u32;
 
 #[derive(Debug)]
-pub enum Record {
-    String(Id, Vec<u8>),
+pub enum Record<Str> {
+    String(Id, Str),
     LoadClass(ClassRecord),
     UnloadClass(SerialNumber),
     StackFrame(StackFrameRecord),
@@ -87,8 +87,8 @@ pub enum Record {
 }
 
 #[derive(Clone, Debug)]
-pub struct HprofHeader {
-    pub format_name: Option<String>,
+pub struct HprofHeader<Str> {
+    pub format_name: Option<Str>,
     pub id_size: u32,
     pub timestamp: u64,
 }

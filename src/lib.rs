@@ -1,7 +1,11 @@
 pub mod decl;
+pub mod reader;
 pub mod records;
 pub mod stream;
 pub mod try_byteorder;
+
+#[macro_use]
+extern crate static_assert_macro;
 
 use decl::{ClassRecord, HprofHeader};
 use std::collections::HashMap;
@@ -11,14 +15,14 @@ pub struct Class {
     pub unloaded: bool,
 }
 
-pub struct HprofReader {
-    pub header: HprofHeader,
-    pub strings: HashMap<u64, Vec<u8>>,
+pub struct HprofReader<Str> {
+    pub header: HprofHeader<Str>,
+    pub strings: HashMap<u64, Str>,
     pub classes: HashMap<u64, Class>,
 }
 
-impl HprofReader {
-    pub fn from_stream_reader(header: &HprofHeader) -> Self {
+impl<'a, Str: Clone + 'a> HprofReader<Str> {
+    pub fn from_stream_reader(header: &HprofHeader<Str>) -> Self {
         Self {
             header: header.clone(),
             strings: HashMap::default(),
