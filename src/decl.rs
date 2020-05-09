@@ -372,4 +372,3 @@ impl From<io::Error> for Error {
         Error::UnderlyingIOError(error)
     }
 }
-

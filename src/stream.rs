@@ -1,14 +1,13 @@
 use crate::decl::*;
-use crate::records::*;
 use crate::reader::*;
-use crate::try_byteorder::ReadBytesTryExt;
 use crate::reader::{MainState, TakeState};
+use crate::records::*;
+use crate::try_byteorder::ReadBytesTryExt;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::io::BufRead;
-use std::str::from_utf8;
 use std::marker::PhantomData;
-
+use std::str::from_utf8;
 
 pub struct StreamHprofReader {
     pub id_byteorder: ByteOrder,
@@ -39,8 +38,10 @@ pub struct ReadHprofIterator<'hprof, R: std::io::BufRead> {
     pub banner: String,
 }
 
-impl <'hprof, R: std::io::BufRead> ReadHprofIterator<'hprof, R> {
-    fn new(iter: StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>) -> Self {
+impl<'hprof, R: std::io::BufRead> ReadHprofIterator<'hprof, R> {
+    fn new(
+        iter: StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>,
+    ) -> Self {
         Self {
             timestamp: iter.timestamp,
             banner: iter.banner.clone(),
@@ -55,8 +56,15 @@ pub struct MemoryHprofIterator<'data, 'hprof> {
     pub banner: String,
 }
 
-impl <'data, 'hprof> MemoryHprofIterator<'data, 'hprof> {
-    fn new(iter: StreamHprofIterator<'data, 'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>) -> Self {
+impl<'data, 'hprof> MemoryHprofIterator<'data, 'hprof> {
+    fn new(
+        iter: StreamHprofIterator<
+            'data,
+            'hprof,
+            MainStream<Memory<'data>>,
+            TakeStream<Memory<'data>>,
+        >,
+    ) -> Self {
         Self {
             timestamp: iter.timestamp,
             banner: iter.banner.clone(),
@@ -93,26 +101,30 @@ impl StreamHprofReader {
         &self,
         stream: R,
     ) -> Result<ReadHprofIterator<'_, R>, Error> {
-        self.read_hprof(MainStream(Stream(stream))).map(ReadHprofIterator::new)
+        self.read_hprof(MainStream(Stream(stream)))
+            .map(ReadHprofIterator::new)
     }
 
     pub fn read_hprof_from_memory<'data, 'hprof>(
         &'hprof self,
         data: &'data [u8],
     ) -> Result<MemoryHprofIterator<'data, 'hprof>, Error> {
-        self.read_hprof(MainStream(Memory(data))).map(MemoryHprofIterator::new)
+        self.read_hprof(MainStream(Memory(data)))
+            .map(MemoryHprofIterator::new)
     }
 
-    fn read_hprof<'stream, 'hprof, R, T> (
+    fn read_hprof<'stream, 'hprof, R, T>(
         &'hprof self,
         mut stream: R,
     ) -> Result<StreamHprofIterator<'stream, 'hprof, R, T>, Error>
-    where R: MainState<'stream, T>,
-          T: TakeState<'stream, R> {
+    where
+        R: MainState<'stream, T>,
+        T: TakeState<'stream, R>,
+    {
         // Read header first
         // Using split looks unreliable.  Reading byte-by-byte looks more reliable and doesn't require
         // a BufRead (though why not?).
-        
+
         let banner = from_utf8(&stream.reader().split(0x00).next().unwrap()?[..])
             .or(Err(Error::InvalidHeader(
                 "Failed to parse banner in HPROF file header",
@@ -148,12 +160,14 @@ impl Default for StreamHprofReader {
     }
 }
 
-impl<'stream, 'hprof, R, T> StreamHprofIterator<'stream, 'hprof, R, T> 
-where R: MainState<'stream, T>,
-      T: TakeState<'stream, R> {
-    fn read_record(&mut self) -> Option<Result<(
-        Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>
-    ), Error>> {
+impl<'stream, 'hprof, R, T> StreamHprofIterator<'stream, 'hprof, R, T>
+where
+    R: MainState<'stream, T>,
+    T: TakeState<'stream, R>,
+{
+    fn read_record(
+        &mut self,
+    ) -> Option<Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>> {
         match self.state.take().unwrap() {
             IteratorState::InNormal(mut main) => {
                 let stream = main.reader();
@@ -163,12 +177,7 @@ where R: MainState<'stream, T>,
                         // End of stream, be it an error or a real end.
                         self.state = Some(IteratorState::Eof);
                         // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
-                        return other.map(
-                            |r| r.map(
-                                |_| unreachable!()
-                            ).or_else(
-                                |e| Err(e.into())
-                            ));
+                        return other.map(|r| r.map(|_| unreachable!()).or_else(|e| Err(e.into())));
                     }
                 };
 
@@ -231,8 +240,8 @@ where R: MainState<'stream, T>,
                             timestamp,
                             match main.take(payload_size) {
                                 Ok(take) => take,
-                                Err(err) => return Some(Err(err))
-                            }
+                                Err(err) => return Some(Err(err)),
+                            },
                         ));
 
                         return self.read_data_record();
@@ -253,7 +262,9 @@ where R: MainState<'stream, T>,
         }
     }
 
-    fn read_data_record(&mut self) -> Option<Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>> {
+    fn read_data_record(
+        &mut self,
+    ) -> Option<Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>> {
         let id_reader = self.id_reader;
         let state = self.state.take().unwrap();
 
@@ -354,8 +365,10 @@ where R: MainState<'stream, T>,
 }
 
 impl<'stream, 'hprof, R, T> Iterator for StreamHprofIterator<'stream, 'hprof, R, T>
-where R: MainState<'stream, T>,
-      T: TakeState<'stream, R> {
+where
+    R: MainState<'stream, T>,
+    T: TakeState<'stream, R>,
+{
     type Item = Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -383,8 +396,7 @@ impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
     }
 }
 
-impl<'hprof, R: BufRead> Iterator for ReadHprofIterator<'hprof, R>
- {
+impl<'hprof, R: BufRead> Iterator for ReadHprofIterator<'hprof, R> {
     type Item = Result<(Ts, Record<Vec<u8>>), Error>;
 
     #[inline]

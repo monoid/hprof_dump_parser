@@ -10,7 +10,6 @@ pub(crate) trait ReadHprofString<'a> {
     fn read_string(&mut self, len: u32) -> io::Result<Self::String>;
 }
 
-
 /// Source for memory buffer (be it a mmap'ed data or one read from a file).
 #[repr(transparent)]
 pub(crate) struct Memory<'a>(pub(crate) &'a [u8]);
@@ -26,8 +25,9 @@ impl<'a> ReadHprofString<'a> for Memory<'a> {
             Ok(result)
         } else {
             Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof, "not enough data for reading string")
-            )
+                io::ErrorKind::UnexpectedEof,
+                "not enough data for reading string",
+            ))
         }
     }
 }
@@ -52,7 +52,6 @@ impl<'a> io::BufRead for Memory<'a> {
         self.0.consume(amt)
     }
 }
-
 
 /// Source for a Read stream.
 #[repr(transparent)]
@@ -158,13 +157,11 @@ impl<'a> TakeState<'a, MainMemory<'a>> for TakeMemory<'a> {
     fn reader(&mut self) -> &mut Self::Stream {
         &mut self.data
     }
-
 }
 
 pub(crate) struct MainStream<R>(pub(crate) R);
 
 pub(crate) struct TakeStream<R: BufRead>(pub(crate) Stream<Take<R>>);
-
 
 impl<'a, R: BufRead + ReadHprofString<'a>> MainState<'a, TakeStream<R>> for MainStream<R> {
     type Stream = R;
@@ -188,5 +185,4 @@ impl<'a, R: BufRead + ReadHprofString<'a>> TakeState<'a, MainStream<R>> for Take
     fn reader(&mut self) -> &mut Self::Stream {
         &mut self.0
     }
-
 }

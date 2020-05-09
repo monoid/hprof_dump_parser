@@ -7,7 +7,6 @@ pub mod try_byteorder;
 #[macro_use]
 extern crate static_assert_macro;
 
-
 use decl::{ClassRecord, HprofHeader};
 use std::collections::HashMap;
 
