@@ -3,7 +3,7 @@ use std::io::{self, BufRead, Take};
 
 /// Trait for getting HPROF string (actually, bytes) from source.  It can
 /// be &'a [u8] from memory buffer or Vec<u8> read from Read.
-pub trait ReadHprofString<'a> {
+pub(crate) trait ReadHprofString<'a> {
     type String;
 
     /// We use u32 for len as all lengths in HPROF format are u32.
@@ -13,7 +13,7 @@ pub trait ReadHprofString<'a> {
 
 /// Source for memory buffer (be it a mmap'ed data or one read from a file).
 #[repr(transparent)]
-pub struct Memory<'a>(pub(crate) &'a [u8]);
+pub(crate) struct Memory<'a>(pub(crate) &'a [u8]);
 
 impl<'a> ReadHprofString<'a> for Memory<'a> {
     type String = &'a [u8];
@@ -56,7 +56,7 @@ impl<'a> io::BufRead for Memory<'a> {
 
 /// Source for a Read stream.
 #[repr(transparent)]
-pub struct Stream<R: io::Read>(pub(crate) R);
+pub(crate) struct Stream<R: io::Read>(pub(crate) R);
 
 impl<'a, R: io::BufRead> ReadHprofString<'a> for Stream<R> {
     type String = Vec<u8>;
@@ -95,7 +95,7 @@ impl<R: io::BufRead> io::BufRead for Stream<R> {
 /// by std::io::Take).  The parser switches between them during
 /// parsing.  Both methods for switching to another state are
 /// consuming.
-pub trait MainState<'a, Take> {
+pub(crate) trait MainState<'a, Take> {
     type Stream: BufRead + ReadHprofString<'a>;
 
     /// Convert into Take state.
@@ -104,7 +104,7 @@ pub trait MainState<'a, Take> {
     fn reader(&mut self) -> &mut Self::Stream;
 }
 
-pub trait TakeState<'a, Main> {
+pub(crate) trait TakeState<'a, Main> {
     type Stream: BufRead + ReadHprofString<'a>;
 
     fn into_inner(self) -> Main;
@@ -161,9 +161,9 @@ impl<'a> TakeState<'a, MainMemory<'a>> for TakeMemory<'a> {
 
 }
 
-pub struct MainStream<R>(pub(crate) R);
+pub(crate) struct MainStream<R>(pub(crate) R);
 
-pub struct TakeStream<R: BufRead>(pub(crate) Stream<Take<R>>);
+pub(crate) struct TakeStream<R: BufRead>(pub(crate) Stream<Take<R>>);
 
 
 impl<'a, R: BufRead + ReadHprofString<'a>> MainState<'a, TakeStream<R>> for MainStream<R> {

@@ -22,7 +22,7 @@ enum IteratorState<R, T> {
     InNormal(R),
 }
 
-pub struct StreamHprofIterator<'stream, 'hprof, R, T> {
+struct StreamHprofIterator<'stream, 'hprof, R, T> {
     pub banner: String,
     pub timestamp: Ts,
     state: Option<IteratorState<R, T>>,
@@ -33,9 +33,37 @@ pub struct StreamHprofIterator<'stream, 'hprof, R, T> {
     menace: PhantomData<&'stream ()>,
 }
 
-pub type ReadHprofIterator<'hprof, R> = StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>;
+pub struct ReadHprofIterator<'hprof, R: std::io::BufRead> {
+    iter: StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>,
+    pub timestamp: Ts,
+    pub banner: String,
+}
 
-pub type MemoryHprofIterator<'data, 'hprof> = StreamHprofIterator<'data, 'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>;
+impl <'hprof, R: std::io::BufRead> ReadHprofIterator<'hprof, R> {
+    fn new(iter: StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>) -> Self {
+        Self {
+            timestamp: iter.timestamp,
+            banner: iter.banner.clone(),
+            iter,
+        }
+    }
+}
+
+pub struct MemoryHprofIterator<'data, 'hprof> {
+    iter: StreamHprofIterator<'data, 'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>,
+    pub timestamp: Ts,
+    pub banner: String,
+}
+
+impl <'data, 'hprof> MemoryHprofIterator<'data, 'hprof> {
+    fn new(iter: StreamHprofIterator<'data, 'hprof, MainStream<Memory<'data>>, TakeStream<Memory<'data>>>) -> Self {
+        Self {
+            timestamp: iter.timestamp,
+            banner: iter.banner.clone(),
+            iter,
+        }
+    }
+}
 
 impl StreamHprofReader {
     pub fn new() -> Self {
@@ -62,20 +90,20 @@ impl StreamHprofReader {
     }
 
     pub fn read_hprof_from_stream<'hprof, R: BufRead>(
-        &'hprof self,
+        &self,
         stream: R,
-    ) -> Result<ReadHprofIterator<'hprof, R>, Error> {
-        self.read_hprof(MainStream(Stream(stream)))
+    ) -> Result<ReadHprofIterator<'_, R>, Error> {
+        self.read_hprof(MainStream(Stream(stream))).map(ReadHprofIterator::new)
     }
 
     pub fn read_hprof_from_memory<'data, 'hprof>(
         &'hprof self,
         data: &'data [u8],
     ) -> Result<MemoryHprofIterator<'data, 'hprof>, Error> {
-        self.read_hprof(MainStream(Memory(data)))
+        self.read_hprof(MainStream(Memory(data))).map(MemoryHprofIterator::new)
     }
 
-    pub fn read_hprof<'stream, 'hprof, R, T> (
+    fn read_hprof<'stream, 'hprof, R, T> (
         &'hprof self,
         mut stream: R,
     ) -> Result<StreamHprofIterator<'stream, 'hprof, R, T>, Error>
@@ -87,7 +115,7 @@ impl StreamHprofReader {
         
         let banner = from_utf8(&stream.reader().split(0x00).next().unwrap()?[..])
             .or(Err(Error::InvalidHeader(
-                "Failed to parse file banner in header",
+                "Failed to parse banner in HPROF file header",
             )))?
             .to_string(); // TODO get rid of unwrap
         let mut id_reader = IdReader::new();
@@ -97,7 +125,7 @@ impl StreamHprofReader {
             return Err(Error::IdSizeNotSupported(id_reader.id_size));
         }
 
-        // It can be read as u64 as well, but we follow the spec.
+        // It can be read as u64 as well, but we follow the spec. :)
         let hi: u64 = stream.reader().read_u32::<NetworkEndian>()?.into();
         let lo: u64 = stream.reader().read_u32::<NetworkEndian>()?.into();
         let timestamp = (hi << 32) | lo;
@@ -203,7 +231,7 @@ where R: MainState<'stream, T>,
                             timestamp,
                             match main.take(payload_size) {
                                 Ok(take) => take,
-                                Err(err) => return Some(Err(err.into()))
+                                Err(err) => return Some(Err(err))
                             }
                         ));
 
@@ -326,8 +354,8 @@ where R: MainState<'stream, T>,
 }
 
 impl<'stream, 'hprof, R, T> Iterator for StreamHprofIterator<'stream, 'hprof, R, T>
-where R: MainState<'stream, T> + 'stream,
-      T: TakeState<'stream, R> + 'stream {
+where R: MainState<'stream, T>,
+      T: TakeState<'stream, R> {
     type Item = Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -343,6 +371,25 @@ where R: MainState<'stream, T> + 'stream,
                 e
             })
         })
+    }
+}
+
+impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
+    type Item = Result<(Ts, Record<&'memory [u8]>), Error>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'hprof, R: BufRead> Iterator for ReadHprofIterator<'hprof, R>
+ {
+    type Item = Result<(Ts, Record<Vec<u8>>), Error>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
     }
 }
 
@@ -371,7 +418,7 @@ mod tests {
         }
 
         assert!(it.timestamp != 0);
-        assert!(it.id_reader.id_size == 8 || it.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
+        assert!(it.iter.id_reader.id_size == 8 || it.iter.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
         assert_eq!(it.banner, "JAVA PROFILE 1.0.2"); // May suddenly fail if your version will change.
     }
 
@@ -394,7 +441,7 @@ mod tests {
         }
 
         assert!(it.timestamp != 0);
-        assert!(it.id_reader.id_size == 8 || it.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
+        assert!(it.iter.id_reader.id_size == 8 || it.iter.id_reader.id_size == 4); // Any value not equal to 8 is highly unlikely in 2019.
         assert_eq!(it.banner, "JAVA PROFILE 1.0.2"); // May suddenly fail if your version will change.
     }
 }
