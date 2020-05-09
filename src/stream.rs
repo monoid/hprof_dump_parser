@@ -9,6 +9,7 @@ use std::io::BufRead;
 use std::str::from_utf8;
 use std::marker::PhantomData;
 
+
 pub struct StreamHprofReader {
     pub id_byteorder: ByteOrder,
     pub load_primitive_arrays: bool,
@@ -29,8 +30,7 @@ pub struct StreamHprofIterator<'stream, 'hprof, R, T> {
     hprof: &'hprof StreamHprofReader,
     class_info: HashMap<Id, ClassDescription>,
     id_reader: IdReader,
-    // Any type will do, as it is phantom for 'stream.
-    menace: PhantomData<&'stream R>,
+    menace: PhantomData<&'stream ()>,
 }
 
 pub type ReadHprofIterator<'hprof, R> = StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>;

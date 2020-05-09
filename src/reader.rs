@@ -1,22 +1,21 @@
 use crate::decl::*;
 use std::io::{self, BufRead, Take};
 
-
+/// Trait for getting HPROF string (actually, bytes) from source.  It can
+/// be &'a [u8] from memory buffer or Vec<u8> read from Read.
 pub trait ReadHprofString<'a> {
     type String;
 
-    /// We use u64 for len as all length in HPROF format are u32.
+    /// We use u32 for len as all lengths in HPROF format are u32.
     fn read_string(&mut self, len: u32) -> io::Result<Self::String>;
 }
 
+
+/// Source for memory buffer (be it a mmap'ed data or one read from a file).
 #[repr(transparent)]
 pub struct Memory<'a>(pub(crate) &'a [u8]);
 
-#[repr(transparent)]
-pub struct Stream<R: io::BufRead>(pub(crate) R);
-
-impl<'a> ReadHprofString<'a> for Memory<'a>
-where &'a [u8]: io::Read {
+impl<'a> ReadHprofString<'a> for Memory<'a> {
     type String = &'a [u8];
 
     fn read_string(&mut self, len: u32) -> io::Result<&'a [u8]> {
@@ -27,12 +26,13 @@ where &'a [u8]: io::Read {
             Ok(result)
         } else {
             Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof, "not enough data")
+                io::ErrorKind::UnexpectedEof, "not enough data for reading string")
             )
         }
     }
 }
 
+// An implementation that forwards all calls to inner Read instance.
 impl<'a> io::Read for Memory<'a> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -40,6 +40,7 @@ impl<'a> io::Read for Memory<'a> {
     }
 }
 
+// An implementation that forwards all calls to inner BufRead instance.
 impl<'a> io::BufRead for Memory<'a> {
     #[inline]
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
@@ -52,6 +53,11 @@ impl<'a> io::BufRead for Memory<'a> {
     }
 }
 
+
+/// Source for a Read stream.
+#[repr(transparent)]
+pub struct Stream<R: io::Read>(pub(crate) R);
+
 impl<'a, R: io::BufRead> ReadHprofString<'a> for Stream<R> {
     type String = Vec<u8>;
 
@@ -62,13 +68,15 @@ impl<'a, R: io::BufRead> ReadHprofString<'a> for Stream<R> {
     }
 }
 
-impl<R: io::BufRead> io::Read for Stream<R> {
+// An implementation that forwards all calls to inner Read instance.
+impl<R: io::Read> io::Read for Stream<R> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.0.read(buf)
     }
 }
 
+/// An implementation that forwards all calls to inner BufRead instance.
 impl<R: io::BufRead> io::BufRead for Stream<R> {
     #[inline]
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
@@ -81,10 +89,18 @@ impl<R: io::BufRead> io::BufRead for Stream<R> {
     }
 }
 
+/// MainState and TakeState are two interconnected states.  The Main
+/// means reading from stream without any limits; Take state is used
+/// for reading data from segment of known size (the name is inspired
+/// by std::io::Take).  The parser switches between them during
+/// parsing.  Both methods for switching to another state are
+/// consuming.
 pub trait MainState<'a, Take> {
     type Stream: BufRead + ReadHprofString<'a>;
 
+    /// Convert into Take state.
     fn take(self, len: u32) -> Result<Take, Error>;
+    /// Access to Reader.
     fn reader(&mut self) -> &mut Self::Stream;
 }
 
@@ -103,6 +119,8 @@ impl<'a> MainState<'a, TakeMemory<'a>> for MainMemory<'a> {
     type Stream = Memory<'a>;
 
     fn take(self, len: u32) -> Result<TakeMemory<'a>, Error> {
+        // Assume that usize is not smaller than u32, and
+        // conversion is safe.
         use std::mem::size_of;
         static_assert!(size_of::<u32>() <= size_of::<usize>());
 

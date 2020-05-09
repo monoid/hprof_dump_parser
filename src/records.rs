@@ -403,7 +403,8 @@ pub(crate) fn read_data_22_object_array<R: Read>(
     let num_elements = stream.read_u32::<NetworkEndian>()?;
     let element_class_id: Id = id_reader.read_id(stream)?;
 
-    // TODO: TryInto for num_elements
+    // We cast u32 to usize here and at other places, however,
+    // elsewhere we have a static_assert that u32 fits usize.
     let values = if load_object_arrays {
         let mut values = vec![Id::from(0 as u64); num_elements as usize];
 
@@ -439,7 +440,7 @@ pub(crate) fn read_data_23_primitive_array<R: Read>(
     // TODO: use TryInto
     let num_elements_usize = num_elements as usize;
     let elem_type: FieldType =
-        FieldType::try_from(stream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
+        FieldType::try_from(stream.read_u8()?).or(Err(Error::InvalidField("type")))?;
 
     let values = if load_primitive_arrays {
         Some(match elem_type {
