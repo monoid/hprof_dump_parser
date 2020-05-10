@@ -339,10 +339,7 @@ pub(crate) fn read_data_20_class_dump<R: Read>(
         });
     }
 
-    io::copy(
-        &mut substream,
-        &mut io::sink()
-    )?;
+    io::copy(&mut substream, &mut io::sink())?;
 
     Ok(ClassDescription {
         class_id,
@@ -391,10 +388,7 @@ pub(crate) fn read_data_21_instance_dump<R: Read>(
         current_class_obj_id = class_desc.super_class_object_id;
     }
 
-    io::copy(
-        &mut substream,
-        &mut io::sink()
-    )?;
+    io::copy(&mut substream, &mut io::sink())?;
 
     Ok(InstanceDump {
         object_id,
