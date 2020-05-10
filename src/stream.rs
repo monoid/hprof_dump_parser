@@ -5,7 +5,7 @@ use crate::records::*;
 use crate::try_byteorder::ReadBytesTryExt;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::io::BufRead;
+use std::io::{self, BufRead};
 use std::marker::PhantomData;
 use std::str::from_utf8;
 
@@ -32,13 +32,13 @@ struct StreamHprofIterator<'stream, 'hprof, R, T> {
     menace: PhantomData<&'stream ()>,
 }
 
-pub struct ReadHprofIterator<'hprof, R: std::io::BufRead> {
+pub struct ReadHprofIterator<'hprof, R: io::BufRead> {
     iter: StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>,
     pub timestamp: Ts,
     pub banner: String,
 }
 
-impl<'hprof, R: std::io::BufRead> ReadHprofIterator<'hprof, R> {
+impl<'hprof, R: io::BufRead> ReadHprofIterator<'hprof, R> {
     fn new(
         iter: StreamHprofIterator<'hprof, 'hprof, MainStream<Stream<R>>, TakeStream<Stream<R>>>,
     ) -> Self {
@@ -97,7 +97,7 @@ impl StreamHprofReader {
         self
     }
 
-    pub fn read_hprof_from_stream<'hprof, R: BufRead>(
+    pub fn read_hprof_from_stream<'hprof, R: io::BufRead>(
         &self,
         stream: R,
     ) -> Result<ReadHprofIterator<'_, R>, Error> {
@@ -284,7 +284,6 @@ where
                             None => unreachable!(),
                             Some(Ok(value)) => value,
                             Some(Err(err)) => {
-                                // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
                                 return Err(err.into());
                             }
                         };
@@ -396,7 +395,7 @@ impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
     }
 }
 
-impl<'hprof, R: BufRead> Iterator for ReadHprofIterator<'hprof, R> {
+impl<'hprof, R: io::BufRead> Iterator for ReadHprofIterator<'hprof, R> {
     type Item = Result<(Ts, Record<Vec<u8>>), Error>;
 
     #[inline]

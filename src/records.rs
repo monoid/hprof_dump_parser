@@ -277,19 +277,21 @@ pub(crate) fn read_data_08_root_thread_obj<T: Read>(
 }
 
 pub(crate) fn read_data_20_class_dump<R: Read>(
-    substream: &mut R,
+    stream: &mut R,
     id_reader: IdReader,
 ) -> Result<ClassDescription, Error> {
-    let class_id: Id = id_reader.read_id(substream)?;
-    let stack_trace_serial: SerialNumber = substream.read_u32::<NetworkEndian>()?;
-    let super_class_object_id: Id = id_reader.read_id(substream)?;
-    let class_loader_object_id: Id = id_reader.read_id(substream)?;
-    let signers_object_id: Id = id_reader.read_id(substream)?;
-    let protection_domain_object_id = id_reader.read_id(substream)?;
-    let reserved1 = id_reader.read_id(substream)?;
-    let reserved2 = id_reader.read_id(substream)?;
+    let class_id: Id = id_reader.read_id(stream)?;
+    let stack_trace_serial: SerialNumber = stream.read_u32::<NetworkEndian>()?;
+    let super_class_object_id: Id = id_reader.read_id(stream)?;
+    let class_loader_object_id: Id = id_reader.read_id(stream)?;
+    let signers_object_id: Id = id_reader.read_id(stream)?;
+    let protection_domain_object_id = id_reader.read_id(stream)?;
+    let reserved1 = id_reader.read_id(stream)?;
+    let reserved2 = id_reader.read_id(stream)?;
 
-    let instance_size: u32 = substream.read_u32::<NetworkEndian>()?;
+    let instance_size: u32 = stream.read_u32::<NetworkEndian>()?;
+
+    let mut substream = stream.take(instance_size as u64);
 
     let const_pool_size: u16 = substream.read_u16::<NetworkEndian>()?;
     let mut const_fields = Vec::with_capacity(const_pool_size as usize);
@@ -297,7 +299,7 @@ pub(crate) fn read_data_20_class_dump<R: Read>(
         let const_pool_idx: u16 = substream.read_u16::<NetworkEndian>()?;
         let const_type: FieldType =
             FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
-        let const_value = read_type_value(substream, const_type, id_reader)?;
+        let const_value = read_type_value(&mut substream, const_type, id_reader)?;
 
         const_fields.push((
             ConstFieldInfo {
@@ -311,10 +313,10 @@ pub(crate) fn read_data_20_class_dump<R: Read>(
     let static_field_num: u16 = substream.read_u16::<NetworkEndian>()?;
     let mut static_fields = Vec::with_capacity(static_field_num as usize);
     for _idx in 0..static_field_num {
-        let name_id: Id = id_reader.read_id(substream)?;
+        let name_id: Id = id_reader.read_id(&mut substream)?;
         let field_type: FieldType =
             FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
-        let field_value = read_type_value(substream, field_type, id_reader)?;
+        let field_value = read_type_value(&mut substream, field_type, id_reader)?;
 
         static_fields.push((
             FieldInfo {
@@ -328,7 +330,7 @@ pub(crate) fn read_data_20_class_dump<R: Read>(
     let instance_fields_num: u16 = substream.read_u16::<NetworkEndian>()?;
     let mut instance_fields = Vec::with_capacity(instance_fields_num as usize);
     for _idx in 0..instance_fields_num {
-        let name_id: Id = id_reader.read_id(substream)?;
+        let name_id: Id = id_reader.read_id(&mut substream)?;
         let field_type: FieldType =
             FieldType::try_from(substream.read_u8()?).or(Err(Error::InvalidField("ty")))?;
         instance_fields.push(FieldInfo {
@@ -336,6 +338,11 @@ pub(crate) fn read_data_20_class_dump<R: Read>(
             field_type,
         });
     }
+
+    io::copy(
+        &mut substream,
+        &mut io::sink()
+    )?;
 
     Ok(ClassDescription {
         class_id,
@@ -383,6 +390,11 @@ pub(crate) fn read_data_21_instance_dump<R: Read>(
 
         current_class_obj_id = class_desc.super_class_object_id;
     }
+
+    io::copy(
+        &mut substream,
+        &mut io::sink()
+    )?;
 
     Ok(InstanceDump {
         object_id,
