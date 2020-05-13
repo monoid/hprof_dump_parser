@@ -97,7 +97,7 @@ impl StreamHprofReader {
         self
     }
 
-    pub fn read_hprof_from_stream<'hprof, R: io::BufRead>(
+    pub fn read_hprof_from_stream<R: io::BufRead>(
         &self,
         stream: R,
     ) -> Result<ReadHprofIterator<'_, R>, Error> {
