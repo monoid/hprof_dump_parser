@@ -6,6 +6,7 @@ use crate::try_byteorder::ReadBytesTryExt;
 use byteorder::{NetworkEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::io::{self, BufRead};
+use std::iter;
 use std::marker::PhantomData;
 use std::str::from_utf8;
 
@@ -386,6 +387,13 @@ where
     }
 }
 
+impl<'stream, 'hprof, R, T> iter::FusedIterator for StreamHprofIterator<'stream, 'hprof, R, T>
+where
+    R: MainState<'stream, T>,
+    T: TakeState<'stream, R>,
+{
+}
+
 impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
     type Item = Result<(Ts, Record<&'memory [u8]>), Error>;
 
@@ -395,6 +403,8 @@ impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
     }
 }
 
+impl<'memory, 'hprof> iter::FusedIterator for MemoryHprofIterator<'memory, 'hprof> {}
+
 impl<'hprof, R: io::BufRead> Iterator for ReadHprofIterator<'hprof, R> {
     type Item = Result<(Ts, Record<Vec<u8>>), Error>;
 
@@ -403,6 +413,8 @@ impl<'hprof, R: io::BufRead> Iterator for ReadHprofIterator<'hprof, R> {
         self.iter.next()
     }
 }
+
+impl<'hprof, R: io::BufRead> iter::FusedIterator for ReadHprofIterator<'hprof, R> {}
 
 #[cfg(test)]
 mod tests {
