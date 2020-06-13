@@ -6,7 +6,21 @@ and http://hg.openjdk.java.net/jdk6/jdk6/jdk/raw-file/tip/src/share/demo/jvmti/h
 Currently, the supported ID sizes (actually, pointer sizes) are 4 and 8.
 
 The library provides a streaming interface (iterator over dump
-records).  Class structure information is kept in memory as it is
-required for unpacking object data.
+records).  Class structure information and string dictionary are kept
+in memory as they are required for unpacking object data.
+
+There are two modes of operation: reading from std::io::BufRead with
+StreamHprofReader::read_hprof_from_stream (strings are
+returned as Vec<u8>) and from memory with
+StreamHprofReader::read_hprof_from_memory (strings are returned as
+&'memory [u8], where 'memory is memory lifetime).
+
+Values stored in Record::String (i.e. strings by themselves) do not always
+have valid UTF-8 data, that's why they are returned as byte vectors/slices.
+
+Strings are returned as Record::String(id, data), and
+from object dump, these strings are refered by their id; this
+crate doesn't resolve these ids into strings (and objects are not
+resolved either), you have to keep id->data mapping by yourself.
 
 Author: Ivan Boldyrev <lispnik@gmail.com>
