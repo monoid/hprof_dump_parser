@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::decl::*;
 use crate::reader::*;
 use byteorder::{NativeEndian, NetworkEndian, ReadBytesExt};

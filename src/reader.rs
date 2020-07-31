@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::decl::*;
 use std::io::{self, BufRead, Take};
 

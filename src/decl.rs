@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use num_enum::TryFromPrimitive;
 use std::convert::Into;
 use std::io;

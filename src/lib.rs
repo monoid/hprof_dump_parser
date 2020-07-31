@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod decl;
 mod reader;
 mod records;
