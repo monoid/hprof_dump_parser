@@ -450,16 +450,17 @@ mod tests {
     #[ignore]
     #[test]
     fn test_with_4g_memory() {
-        use memmap::MmapOptions;
-        let f = File::open("./java/dump.hprof")
+        use std::io::Read;
+        let mut f = File::open("./java/dump.hprof")
             .expect("./java/hprof.dump not found. Please, create it manually.");
 
-        let mmap = unsafe { MmapOptions::new().map(&f).unwrap() };
+        let mut data = vec![];
+        f.read_to_end(&mut data).expect("Failed to read test input data");
 
         let hprof = StreamHprofReader::new()
             .with_load_object_arrays(false)
             .with_load_primitive_arrays(false);
-        let mut it = hprof.read_hprof_from_memory(&mmap).unwrap();
+        let mut it = hprof.read_hprof_from_memory(&data).unwrap();
 
         for rec in it.by_ref() {
             eprintln!("{:?}", rec);
