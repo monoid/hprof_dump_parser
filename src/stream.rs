@@ -163,14 +163,21 @@ impl Default for StreamHprofReader {
     }
 }
 
+#[allow(type_alias_bounds)]
+type Value<'stream, R, T>
+where
+    R: MainState<'stream, T>,
+= (
+    Ts,
+    Record<<<R as MainState<'stream, T>>::Stream as ReadHprofString<'stream>>::String>,
+);
+
 impl<'stream, 'hprof, R, T> StreamHprofIterator<'stream, 'hprof, R, T>
 where
     R: MainState<'stream, T>,
     T: TakeState<'stream, R>,
 {
-    fn read_record(
-        &mut self,
-    ) -> Option<Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>> {
+    fn read_record(&mut self) -> Option<Result<Value<'stream, R, T>, Error>> {
         match self.state.take().unwrap() {
             IteratorState::InNormal(mut main) => {
                 let stream = main.reader();
@@ -180,7 +187,7 @@ where
                         // End of stream, be it an error or a real end.
                         self.state = Some(IteratorState::Eof);
                         // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
-                        return other.map(|r| r.map(|_| unreachable!()).or_else(|e| Err(e.into())));
+                        return other.map(|r| r.map(|_| unreachable!()).map_err(Into::into));
                     }
                 };
 
@@ -203,40 +210,39 @@ where
                 let retval = match tag {
                     TAG_STRING => Some(
                         read_01_string(stream, id_reader, payload_size)
-                            .and_then(|(id, data)| Ok((timestamp, Record::String(id, data)))),
+                            .map(|(id, data)| (timestamp, Record::String(id, data))),
                     ),
                     TAG_LOAD_CLASS => Some(
-                        read_02_load_class(stream, id_reader).and_then(|class_record| {
-                            Ok((timestamp, Record::LoadClass(class_record)))
-                        }),
+                        read_02_load_class(stream, id_reader)
+                            .map(|class_record| (timestamp, Record::LoadClass(class_record))),
                     ),
                     TAG_UNLOAD_CLASS => Some(
                         read_03_unload_class(stream)
-                            .and_then(|serial| Ok((timestamp, Record::UnloadClass(serial)))),
+                            .map(|serial| (timestamp, Record::UnloadClass(serial))),
                     ),
                     TAG_STACK_FRAME => Some(
                         read_04_frame(stream, id_reader)
-                            .and_then(|frame| Ok((timestamp, Record::StackFrame(frame)))),
+                            .map(|frame| (timestamp, Record::StackFrame(frame))),
                     ),
                     TAG_STACK_TRACE => Some(
                         read_05_trace(stream, id_reader)
-                            .and_then(|trace| Ok((timestamp, Record::StackTrace(trace)))),
+                            .map(|trace| (timestamp, Record::StackTrace(trace))),
                     ),
                     TAG_ALLOC_SITES => Some(
                         read_06_alloc_sites(stream)
-                            .and_then(|alloc| Ok((timestamp, Record::AllocSites(alloc)))),
+                            .map(|alloc| (timestamp, Record::AllocSites(alloc))),
                     ),
-                    TAG_HEAP_SUMMARY => {
-                        Some(read_07_heap_summary(stream).and_then(|heap_summary| {
-                            Ok((timestamp, Record::HeapSummary(heap_summary)))
-                        }))
-                    }
-                    TAG_START_THREAD => Some(read_0a_start_thread(stream, id_reader).and_then(
-                        |start_thread| Ok((timestamp, Record::StartThread(start_thread))),
-                    )),
+                    TAG_HEAP_SUMMARY => Some(
+                        read_07_heap_summary(stream)
+                            .map(|heap_summary| (timestamp, Record::HeapSummary(heap_summary))),
+                    ),
+                    TAG_START_THREAD => Some(
+                        read_0a_start_thread(stream, id_reader)
+                            .map(|start_thread| (timestamp, Record::StartThread(start_thread))),
+                    ),
                     TAG_END_THREAD => Some(
                         read_0b_end_thread(stream)
-                            .and_then(|end_thread| Ok((timestamp, Record::EndThread(end_thread)))),
+                            .map(|end_thread| (timestamp, Record::EndThread(end_thread))),
                     ),
                     TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
                         self.state = Some(IteratorState::InData(
@@ -265,9 +271,7 @@ where
         }
     }
 
-    fn read_data_record(
-        &mut self,
-    ) -> Option<Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>> {
+    fn read_data_record(&mut self) -> Option<Result<Value<'stream, R, T>, Error>> {
         let id_reader = self.id_reader;
         let state = self.state.take().unwrap();
 
@@ -371,7 +375,7 @@ where
     R: MainState<'stream, T>,
     T: TakeState<'stream, R>,
 {
-    type Item = Result<(Ts, Record<<R::Stream as ReadHprofString<'stream>>::String>), Error>;
+    type Item = Result<Value<'stream, R, T>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.state {
@@ -455,7 +459,8 @@ mod tests {
             .expect("./java/hprof.dump not found. Please, create it manually.");
 
         let mut data = vec![];
-        f.read_to_end(&mut data).expect("Failed to read test input data");
+        f.read_to_end(&mut data)
+            .expect("Failed to read test input data");
 
         let hprof = StreamHprofReader::new()
             .with_load_object_arrays(false)

@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 
 use num_enum::TryFromPrimitive;
-use std::convert::Into;
 use std::io;
 
 pub(crate) const TAG_STRING: u8 = 0x01;
@@ -38,9 +37,9 @@ pub(crate) const TAG_GC_PRIM_ARRAY_DUMP: u8 = 0x23;
 #[repr(transparent)]
 pub struct Id(usize);
 
-impl Into<usize> for Id {
-    fn into(self: Id) -> usize {
-        self.0
+impl From<Id> for usize {
+    fn from(val: Id) -> usize {
+        val.0
     }
 }
 
@@ -50,9 +49,9 @@ impl From<usize> for Id {
     }
 }
 
-impl Into<u64> for Id {
-    fn into(self: Id) -> u64 {
-        self.0 as u64
+impl From<Id> for u64 {
+    fn from(val: Id) -> u64 {
+        val.0 as u64
     }
 }
 

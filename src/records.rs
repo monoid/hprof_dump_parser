@@ -414,7 +414,7 @@ pub(crate) fn read_data_22_object_array<R: Read>(
     // We cast u32 to usize here and at other places, however,
     // elsewhere we have a static_assert that u32 fits usize.
     let values = if load_object_arrays {
-        let mut values = vec![Id::from(0 as u64); num_elements as usize];
+        let mut values = vec![Id::from(0u64); num_elements as usize];
 
         for elt in values.iter_mut() {
             *elt = id_reader.read_id(stream)?;
