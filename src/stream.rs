@@ -278,26 +278,20 @@ where
         match state {
             IteratorState::InData(ts, mut subdata) => {
                 let try_tag = subdata.reader().try_read_u8();
-                if try_tag.is_none() {
-                    // End of data segment
-                    let main = subdata.into_inner();
-                    self.state = Some(IteratorState::InNormal(main));
-                    self.read_record()
-                } else {
-                    // Use lambda to make ? work.
-                    let read_data = move || {
-                        let mut substream = subdata.reader();
-                        let tag = match try_tag {
-                            None => unreachable!(),
-                            Some(Ok(value)) => value,
-                            Some(Err(err)) => {
-                                return Err(err.into());
-                            }
-                        };
+                match try_tag {
+                    None => {
+                        // End of data segment
+                        let main = subdata.into_inner();
+                        self.state = Some(IteratorState::InNormal(main));
+                        self.read_record()
+                    }
+                    Some(non_empty) => {
+                        // Use lambda to make ? work.
+                        let read_data = move || {
+                            let mut substream = subdata.reader();
+                            let tag = non_empty?;
 
-                        let res = Ok((
-                            ts,
-                            Record::Dump(match tag {
+                            let res = match tag {
                                 TAG_GC_ROOT_UNKNOWN => {
                                     read_data_ff_root_unknown(&mut substream, id_reader)?
                                 }
@@ -357,12 +351,12 @@ where
                                 _ => {
                                     return Err(Error::UnknownSubpacket(tag));
                                 }
-                            }),
-                        ));
-                        self.state = Some(IteratorState::InData(ts, subdata));
-                        res
-                    };
-                    Some(read_data())
+                            };
+                            self.state = Some(IteratorState::InData(ts, subdata));
+                            Ok((ts, Record::Dump(res)))
+                        };
+                        Some(read_data())
+                    }
                 }
             }
             _ => unreachable!(),
