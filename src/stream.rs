@@ -24,10 +24,22 @@ enum IteratorState<R, T> {
     InNormal(R),
 }
 
+impl<R, T> Default for IteratorState<R, T> {
+    fn default() -> Self {
+        Self::Eof
+    }
+}
+
+impl<R, T> IteratorState<R, T> {
+    fn take(&mut self) -> Self {
+        std::mem::take(self)
+    }
+}
+
 struct StreamHprofIterator<'stream, 'hprof, R, T> {
     pub banner: String,
     pub timestamp: Ts,
-    state: Option<IteratorState<R, T>>,
+    state: IteratorState<R, T>,
     // TODO: just copy params from StreamHprofReader
     hprof: &'hprof StreamHprofReader,
     class_info: HashMap<Id, ClassDescription>,
@@ -148,7 +160,7 @@ impl StreamHprofReader {
         Ok(StreamHprofIterator {
             banner,
             timestamp,
-            state: Some(IteratorState::InNormal(stream)),
+            state: IteratorState::InNormal(stream),
             hprof: self,
             class_info: HashMap::new(),
             id_reader,
@@ -178,14 +190,14 @@ where
     T: TakeState<'stream, R>,
 {
     fn read_record(&mut self) -> Option<Result<Value<'stream, R, T>, Error>> {
-        match self.state.take().unwrap() {
+        match self.state.take() {
             IteratorState::InNormal(mut main) => {
                 let stream = main.reader();
                 let tag = match stream.try_read_u8() {
                     Some(Ok(value)) => value,
                     other => {
                         // End of stream, be it an error or a real end.
-                        self.state = Some(IteratorState::Eof);
+                        self.state = IteratorState::Eof;
                         // We have to convert Result<u16, io::Error> to Result<DumpRecord, Error>
                         return other.map(|r| r.map(|_| unreachable!()).map_err(Into::into));
                     }
@@ -245,26 +257,26 @@ where
                             .map(|end_thread| (timestamp, Record::EndThread(end_thread))),
                     ),
                     TAG_HEAP_DUMP | TAG_HEAP_DUMP_SEGMENT => {
-                        self.state = Some(IteratorState::InData(
+                        self.state = IteratorState::InData(
                             timestamp,
                             match main.take(payload_size) {
                                 Ok(take) => take,
                                 Err(err) => return Some(Err(err)),
                             },
-                        ));
+                        );
 
                         return self.read_data_record();
                     }
                     TAG_HEAP_DUMP_END => {
                         // No data inside; just try to read next
                         // segment recursively
-                        self.state = Some(IteratorState::InNormal(main));
+                        self.state = IteratorState::InNormal(main);
 
                         return self.read_record();
                     }
                     _ => Some(Err(Error::UnknownPacket(tag, payload_size))),
                 };
-                self.state = Some(IteratorState::InNormal(main));
+                self.state = IteratorState::InNormal(main);
                 retval
             }
             _ => unreachable!(),
@@ -273,7 +285,7 @@ where
 
     fn read_data_record(&mut self) -> Option<Result<Value<'stream, R, T>, Error>> {
         let id_reader = self.id_reader;
-        let state = self.state.take().unwrap();
+        let state = self.state.take();
 
         match state {
             IteratorState::InData(ts, mut subdata) => {
@@ -282,7 +294,7 @@ where
                     None => {
                         // End of data segment
                         let main = subdata.into_inner();
-                        self.state = Some(IteratorState::InNormal(main));
+                        self.state = IteratorState::InNormal(main);
                         self.read_record()
                     }
                     Some(non_empty) => {
@@ -352,7 +364,7 @@ where
                                     return Err(Error::UnknownSubpacket(tag));
                                 }
                             };
-                            self.state = Some(IteratorState::InData(ts, subdata));
+                            self.state = IteratorState::InData(ts, subdata);
                             Ok((ts, Record::Dump(res)))
                         };
                         Some(read_data())
@@ -373,15 +385,13 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.state {
-            Some(IteratorState::Eof) => None,
-            Some(IteratorState::InNormal(_)) => self.read_record(),
-            Some(IteratorState::InData(_, _)) => self.read_data_record(),
-            None => panic!("Empty state in next. Shouldn't happen"),
+            IteratorState::Eof => None,
+            IteratorState::InNormal(_) => self.read_record(),
+            IteratorState::InData(_, _) => self.read_data_record(),
         }
         .map(|ret| {
-            ret.map_err(|e| {
-                self.state = Some(IteratorState::Eof);
-                e
+            ret.inspect_err(|_| {
+                self.state = IteratorState::Eof;
             })
         })
     }
@@ -389,8 +399,8 @@ where
 
 impl<'stream, 'hprof, R, T> iter::FusedIterator for StreamHprofIterator<'stream, 'hprof, R, T>
 where
-    R: MainState<'stream, T>,
-    T: TakeState<'stream, R>,
+    R: MainState<'stream, T> + Default,
+    T: TakeState<'stream, R> + Default,
 {
 }
 
