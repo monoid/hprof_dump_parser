@@ -35,7 +35,7 @@ impl<'a> ReadHprofString<'a> for Memory<'a> {
 }
 
 // An implementation that forwards all calls to inner Read instance.
-impl<'a> io::Read for Memory<'a> {
+impl io::Read for Memory<'_> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.0.read(buf)
@@ -43,7 +43,7 @@ impl<'a> io::Read for Memory<'a> {
 }
 
 // An implementation that forwards all calls to inner BufRead instance.
-impl<'a> io::BufRead for Memory<'a> {
+impl io::BufRead for Memory<'_> {
     #[inline]
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         self.0.fill_buf()
@@ -59,7 +59,7 @@ impl<'a> io::BufRead for Memory<'a> {
 #[repr(transparent)]
 pub(crate) struct Stream<R: io::Read>(pub(crate) R);
 
-impl<'a, R: io::BufRead> ReadHprofString<'a> for Stream<R> {
+impl<R: io::BufRead> ReadHprofString<'_> for Stream<R> {
     type String = Vec<u8>;
 
     fn read_string(&mut self, len: u32) -> io::Result<Vec<u8>> {

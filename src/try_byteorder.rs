@@ -9,6 +9,7 @@ use std::io;
 /// bytes in the stream, None is returned.  If there is 1 byte, it is
 /// Some(Err(...)).  And if there are 2 bytes, it is Some(Ok(value)).
 /// So, you may both detect EOF and get error info.
+#[allow(dead_code)]
 pub trait ReadBytesTryExt: io::Read {
     /// Current implementation returns None if buffer size is 0.  It
     /// may change to Some(Ok(())) in a future.

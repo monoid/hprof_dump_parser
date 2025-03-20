@@ -191,7 +191,7 @@ where
     Record<<<R as MainState<'stream, T>>::Stream as ReadHprofString<'stream>>::String>,
 );
 
-impl<'stream, 'hprof, R, T> StreamHprofIterator<'stream, 'hprof, R, T>
+impl<'stream, R, T> StreamHprofIterator<'stream, '_, R, T>
 where
     R: MainState<'stream, T>,
     T: TakeState<'stream, R>,
@@ -383,7 +383,7 @@ where
     }
 }
 
-impl<'stream, 'hprof, R, T> Iterator for StreamHprofIterator<'stream, 'hprof, R, T>
+impl<'stream, R, T> Iterator for StreamHprofIterator<'stream, '_, R, T>
 where
     R: MainState<'stream, T>,
     T: TakeState<'stream, R>,
@@ -404,14 +404,14 @@ where
     }
 }
 
-impl<'stream, 'hprof, R, T> iter::FusedIterator for StreamHprofIterator<'stream, 'hprof, R, T>
+impl<'stream, R, T> iter::FusedIterator for StreamHprofIterator<'stream, '_, R, T>
 where
     R: MainState<'stream, T> + Default,
     T: TakeState<'stream, R> + Default,
 {
 }
 
-impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
+impl<'memory> Iterator for MemoryHprofIterator<'memory, '_> {
     type Item = Result<(Ts, Record<&'memory [u8]>), Error>;
 
     #[inline]
@@ -420,9 +420,9 @@ impl<'memory, 'hprof> Iterator for MemoryHprofIterator<'memory, 'hprof> {
     }
 }
 
-impl<'memory, 'hprof> iter::FusedIterator for MemoryHprofIterator<'memory, 'hprof> {}
+impl iter::FusedIterator for MemoryHprofIterator<'_, '_> {}
 
-impl<'hprof, R: io::BufRead> Iterator for ReadHprofIterator<'hprof, R> {
+impl<R: io::BufRead> Iterator for ReadHprofIterator<'_, R> {
     type Item = Result<(Ts, Record<Vec<u8>>), Error>;
 
     #[inline]
@@ -431,7 +431,7 @@ impl<'hprof, R: io::BufRead> Iterator for ReadHprofIterator<'hprof, R> {
     }
 }
 
-impl<'hprof, R: io::BufRead> iter::FusedIterator for ReadHprofIterator<'hprof, R> {}
+impl<R: io::BufRead> iter::FusedIterator for ReadHprofIterator<'_, R> {}
 
 #[cfg(test)]
 mod tests {
