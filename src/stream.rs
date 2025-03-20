@@ -89,6 +89,7 @@ impl<'data, 'hprof> MemoryHprofIterator<'data, 'hprof> {
 }
 
 impl StreamHprofReader {
+    #[inline]
     pub fn new() -> Self {
         Self {
             id_byteorder: ByteOrder::Native,
@@ -97,21 +98,25 @@ impl StreamHprofReader {
         }
     }
 
+    #[inline]
     pub fn with_id_byteorder(mut self, id_byteorder: ByteOrder) -> Self {
         self.id_byteorder = id_byteorder;
         self
     }
 
+    #[inline]
     pub fn with_load_primitive_arrays(mut self, flag: bool) -> Self {
         self.load_primitive_arrays = flag;
         self
     }
 
+    #[inline]
     pub fn with_load_object_arrays(mut self, flag: bool) -> Self {
         self.load_object_arrays = flag;
         self
     }
 
+    #[inline]
     pub fn read_hprof_from_stream<R: io::BufRead>(
         &self,
         stream: R,
@@ -120,6 +125,7 @@ impl StreamHprofReader {
             .map(ReadHprofIterator::new)
     }
 
+    #[inline]
     pub fn read_hprof_from_memory<'data, 'hprof>(
         &'hprof self,
         data: &'data [u8],
@@ -170,6 +176,7 @@ impl StreamHprofReader {
 }
 
 impl Default for StreamHprofReader {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }

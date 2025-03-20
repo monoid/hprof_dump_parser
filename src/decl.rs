@@ -38,30 +38,35 @@ pub(crate) const TAG_GC_PRIM_ARRAY_DUMP: u8 = 0x23;
 pub struct Id(usize);
 
 impl From<Id> for usize {
+    #[inline]
     fn from(val: Id) -> usize {
         val.0
     }
 }
 
 impl From<usize> for Id {
+    #[inline]
     fn from(id: usize) -> Id {
         Id(id)
     }
 }
 
 impl From<Id> for u64 {
+    #[inline]
     fn from(val: Id) -> u64 {
         val.0 as u64
     }
 }
 
 impl From<u64> for Id {
+    #[inline]
     fn from(id: u64) -> Id {
         Id(id as usize)
     }
 }
 
 impl From<u32> for Id {
+    #[inline]
     fn from(id: u32) -> Id {
         Id(id as usize)
     }
@@ -369,6 +374,7 @@ pub enum Error {
 }
 
 impl From<io::Error> for Error {
+    #[inline]
     fn from(error: io::Error) -> Self {
         Error::UnderlyingIOError(error)
     }
